@@ -14,18 +14,22 @@ export interface Room {
   locked: boolean
   active_ticket_id: string | null
   revealed: boolean
+  pin: string | null          // added in migration 003
   created_at: string
 }
 
 export interface Member {
   id: string
   room_id: string
-  user_id: string       // maps to Supabase anon auth uid
+  user_id: string
   name: string
   color: string
   is_host: boolean
   is_spectator: boolean
   joined_at: string
+  rejoin_token: string | null  // added in migration 004
+  last_seen: string | null     // added in migration 006
+  is_active: boolean           // added in migration 007
 }
 
 export interface Ticket {

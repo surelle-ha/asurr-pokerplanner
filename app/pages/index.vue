@@ -44,6 +44,7 @@ const voteStats      = sp.voteStats
 const canVote        = sp.canVote
 const currentUser    = sp.currentUser
 const myToken        = sp.myToken
+const onlineMembers  = sp.onlineMembers
 
 // ─── Computed ─────────────────────────────────────────────────────────────────
 const ticketHistory = computed(() => tickets.value.filter(t => t.final_score !== null))
@@ -84,7 +85,33 @@ const shareUrl = computed(() => {
   return window.location.origin + window.location.pathname + '?room=' + id
 })
 
+// Falling items for landing background animation
+const FALL_ITEMS = ['?','0','1','2','3','5','8','13','21','34','55','☕','🎯','⚡','🃏','★']
+const fallingItems = ref([])
+
+function spawnFallers() {
+  const count = 18
+  fallingItems.value = Array.from({ length: count }, (_, i) => ({
+    id: i,
+    symbol: FALL_ITEMS[Math.floor(Math.random() * FALL_ITEMS.length)],
+    left: Math.random() * 100,
+    delay: Math.random() * 8,
+    duration: 7 + Math.random() * 8,
+    size: 0.75 + Math.random() * 0.9,
+    opacity: 0.04 + Math.random() * 0.1,
+  }))
+}
+
 onMounted(async () => {
+  spawnFallers()
+
+  // 1. Try to resume an existing session (handles page refresh)
+  //    resumeSession returns true if the user had an active room and we
+  //    successfully reconnected — skip the landing screen entirely.
+  const resumed = await sp.resumeSession()
+  if (resumed) { screen.value = 'room'; return }
+
+  // 2. Handle share-link URL: ?room=CODE
   const code = new URLSearchParams(window.location.search).get('room')
   if (code) { joinForm.roomCode = code; screen.value = 'join' }
 })
@@ -201,6 +228,10 @@ async function copyLink() {
   try { await navigator.clipboard.writeText(shareUrl.value); copied.value = true; setTimeout(() => { copied.value = false }, 2000) } catch {}
 }
 
+function openGitHub() {
+  window.open('https://github.com/surelle-ha/asurr-pokerplanner', '_blank', 'noopener')
+}
+
 async function copyToken() {
   if (!myToken.value) return
   try { await navigator.clipboard.writeText(myToken.value); tokenCopied.value = true; setTimeout(() => { tokenCopied.value = false }, 2000) } catch {}
@@ -245,7 +276,7 @@ function exportPDF() {
       .score{font-weight:700;color:#6366f1;font-size:1.1rem;text-align:center}
       .total{margin-top:20px;font-size:13px;color:#666}
     </style></head><body>
-    <h1>📋 ${room.value.name}</h1>
+    <h1>📋 Asurr SprintPoint — ${room.value.name}</h1>
     <p class="meta">Exported ${new Date().toLocaleString()}</p>
     <table>
       <thead><tr><th>#</th><th>Ticket</th><th>Description</th><th style="text-align:center">Score</th></tr></thead>
@@ -285,16 +316,77 @@ function exportPDF() {
     <!-- ══ LANDING ══════════════════════════════════════════════════ -->
     <transition name="screen-fade" mode="out-in">
     <div v-if="screen === 'landing'" key="landing" class="landing">
+
+      <!-- Falling background items -->
+      <div class="fall-stage" aria-hidden="true">
+        <div
+          v-for="item in fallingItems" :key="item.id"
+          class="fall-item"
+          :style="{
+            left: item.left + '%',
+            animationDelay: item.delay + 's',
+            animationDuration: item.duration + 's',
+            fontSize: item.size + 'rem',
+            opacity: item.opacity,
+          }"
+        >{{ item.symbol }}</div>
+      </div>
+
+      <!-- Hero -->
       <div class="landing__hero">
         <div class="landing__badge">Planning Poker</div>
-        <h1 class="landing__title">Sprint<span class="accent">Point</span></h1>
-        <p class="landing__sub">Story point estimation for agile teams</p>
+        <h1 class="landing__title"><span class="brand-prefix">Asurr</span> <span class="product-name">Sprint<span class="accent">Point</span></span></h1>
+        <p class="landing__sub">Free story point estimation tool — built by <a href="https://github.com/surelle-ha" target="_blank" rel="noopener" class="sub-link">surelle-ha</a></p>
         <div class="landing__actions">
           <button class="btn btn--primary" @click="screen = 'create'">Create Room</button>
           <button class="btn btn--ghost" @click="screen = 'join'">Join Room</button>
         </div>
       </div>
 
+      <!-- Info cards row -->
+      <div class="landing__info">
+        <div class="info-card">
+          <div class="info-card__icon">💸</div>
+          <div class="info-card__body">
+            <strong>Free to use</strong>
+            <span>This platform is free for as long as I can sustain it. No ads, no paywalls.</span>
+          </div>
+        </div>
+        <div class="info-card">
+          <div class="info-card__icon">🗑️</div>
+          <div class="info-card__body">
+            <strong>Auto-purge</strong>
+            <span>All room data older than 3 days is automatically deleted. Nothing lingers.</span>
+          </div>
+        </div>
+        <div class="info-card info-card--link" @click="openGitHub">
+          <div class="info-card__icon">⭐</div>
+          <div class="info-card__body">
+            <strong>Open Source</strong>
+            <span>Fully open source on GitHub. Fork it, self-host it, contribute.</span>
+          </div>
+          <span class="info-card__arrow">→</span>
+        </div>
+      </div>
+
+      <!-- Footer links -->
+      <div class="landing__footer">
+        <a
+          href="https://github.com/surelle-ha/asurr-pokerplanner"
+          target="_blank" rel="noopener"
+          class="footer-link footer-link--gh"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          Contribute on GitHub
+        </a>
+        <a
+          href="https://github.com/surelle-ha/asurr-pokerplanner/issues/new"
+          target="_blank" rel="noopener"
+          class="footer-link footer-link--suggest"
+        >
+          💬 Suggest a Feature
+        </a>
+      </div>
 
     </div>
 
@@ -615,11 +707,16 @@ function exportPDF() {
           </div>
           <div class="members-list">
             <transition-group name="list-item" tag="div">
-            <div v-for="m in members" :key="m.id" class="member-row">
+            <div
+              v-for="m in members" :key="m.id"
+              class="member-row"
+              :class="{ 'member-row--offline': !onlineMembers.find(o => o.id === m.id) }"
+            >
               <div class="av av--xs" :style="{ background: m.color }">{{ initials(m.name) }}</div>
               <span class="member-row__name">{{ m.name }}</span>
               <span v-if="m.is_host" class="rbadge rbadge--host">host</span>
               <span v-if="m.is_spectator" class="rbadge">👁</span>
+              <span v-if="!onlineMembers.find(o => o.id === m.id)" class="rbadge rbadge--offline" title="Away">●</span>
             </div>
             </transition-group>
           </div>
@@ -699,6 +796,8 @@ function exportPDF() {
 </template>
 
 <style scoped>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;0,9..40,900;1,9..40,400&family=DM+Mono:wght@400;500&display=swap');
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 .app {
@@ -708,7 +807,9 @@ function exportPDF() {
   --muted: #787e9a; --muted2: #454960; --success: #10b981;
   --felt: #1b4d35; --felt2: #143d29; --felt-rim: #0e2c1d;
   --r: 12px; --r-sm: 8px;
-  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  --font-main: 'DM Sans', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'DM Mono', 'Fira Code', monospace;
+  font-family: var(--font-main);
   background: var(--bg); color: var(--text);
   min-height: 100vh; overflow: hidden; position: relative;
 }
@@ -739,8 +840,99 @@ function exportPDF() {
 .landing__badge { background:rgba(99,102,241,0.14); color:var(--accent2); border:1px solid rgba(99,102,241,0.28); border-radius:999px; padding:3px 14px; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; }
 .landing__title { font-size:clamp(2.8rem,6vw,4.8rem); font-weight:800; letter-spacing:-0.03em; line-height:1; }
 .accent { color:var(--accent2); }
+
+/* Brand name styling */
+.brand { font-weight:800; letter-spacing:0.04em; color:var(--accent2); font-size:1em; }
+.brand-prefix {
+  font-size: clamp(1rem, 2.5vw, 1.6rem);
+  font-weight: 900;
+  font-family: var(--font-main);
+  color: var(--accent2);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.85;
+  display: block;
+  line-height: 1;
+  margin-bottom: 2px;
+}
+.product-name {
+  display: block;
+  line-height: 1;
+}
+.brand-inline {
+  color: var(--accent2);
+  font-weight: 700;
+  font-style: normal;
+}
+.sub-link {
+  color: var(--accent2); font-weight: 600; text-decoration: none;
+  border-bottom: 1px dotted rgba(129,140,248,0.4);
+  transition: border-color 0.15s;
+}
+.sub-link:hover { border-color: var(--accent2); }
 .landing__sub { font-size:0.95rem; color:var(--muted); text-align:center; }
 .landing__actions { display:flex; gap:12px; margin-top:4px; }
+
+/* Falling background */
+.fall-stage {
+  position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden;
+}
+.fall-item {
+  position: absolute; top: -4rem; font-weight: 800;
+  font-family: 'Inter', monospace;
+  animation: fall linear infinite;
+  user-select: none;
+}
+@keyframes fall {
+  0%   { transform: translateY(-60px) rotate(0deg);   }
+  100% { transform: translateY(110vh)  rotate(360deg); }
+}
+
+/* Ensure hero sits above falling layer */
+.landing__hero  { position: relative; z-index: 1; }
+.landing__info  { position: relative; z-index: 1; }
+.landing__footer { position: relative; z-index: 1; }
+
+/* Info cards */
+.landing__info {
+  display: flex; gap: 12px; flex-wrap: wrap; justify-content: center;
+  max-width: 680px; width: 100%;
+}
+.info-card {
+  display: flex; align-items: flex-start; gap: 12px;
+  background: rgba(19,23,32,0.85);
+  border: 1px solid var(--border2); border-radius: var(--r);
+  padding: 14px 16px; flex: 1; min-width: 180px; max-width: 220px;
+  backdrop-filter: blur(8px);
+  transition: border-color 0.2s, background 0.2s;
+}
+.info-card--link { cursor: pointer; }
+.info-card--link:hover { border-color: var(--accent); background: rgba(99,102,241,0.08); }
+.info-card__icon { font-size: 1.35rem; flex-shrink: 0; margin-top: 1px; }
+.info-card__body { display: flex; flex-direction: column; gap: 3px; flex: 1; }
+.info-card__body strong { font-size: 12px; font-weight: 700; color: var(--text); }
+.info-card__body span { font-size: 11px; color: var(--muted); line-height: 1.45; }
+.info-card__arrow { font-size: 14px; color: var(--accent2); align-self: center; flex-shrink: 0; }
+
+/* Footer links */
+.landing__footer { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; align-items: center; }
+.footer-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  text-decoration: none; font-size: 12px; font-weight: 600;
+  border-radius: 999px; padding: 6px 14px;
+  transition: all 0.15s; border: 1px solid;
+}
+.footer-link--gh {
+  color: var(--text); border-color: var(--border2);
+  background: rgba(255,255,255,0.04);
+}
+.footer-link--gh:hover { border-color: var(--border2); background: var(--surface2); }
+.footer-link--suggest {
+  color: var(--accent2); border-color: rgba(99,102,241,0.3);
+  background: rgba(99,102,241,0.08);
+}
+.footer-link--suggest:hover { background: rgba(99,102,241,0.18); border-color: var(--accent); }
+
 .public-rooms { width:100%; max-width:520px; }
 .public-rooms__list { display:flex; flex-direction:column; gap:7px; margin-top:8px; }
 .pub-card { display:flex; align-items:center; gap:12px; background:var(--surface); border:1px solid var(--border2); border-radius:var(--r-sm); padding:11px 15px; cursor:pointer; transition:border-color 0.15s,background 0.15s; }
@@ -821,7 +1013,7 @@ function exportPDF() {
   display: inline-flex; align-items: center; gap: 5px;
   background: var(--surface2); border: 1px solid var(--border2);
   border-radius: 6px; padding: 3px 8px 3px 7px;
-  font-size: 10px; font-family: monospace; font-weight: 700;
+  font-size: 10px; font-family: var(--font-mono); font-weight: 700;
   color: var(--accent2); letter-spacing: 0.04em;
   cursor: pointer; transition: all 0.15s; white-space: nowrap;
 }
@@ -1034,6 +1226,9 @@ function exportPDF() {
 .member-row__name { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .rbadge { font-size:10px; background:var(--surface2); color:var(--muted); padding:1px 6px; border-radius:999px; flex-shrink:0; }
 .rbadge--host { background:rgba(99,102,241,0.15); color:var(--accent2); }
+.rbadge--offline { background:none; color:var(--muted2); font-size:8px; padding:0 4px; }
+.member-row--offline { opacity: 0.45; }
+.member-row--offline .member-row__name { text-decoration: line-through; }
 .chat-messages { flex:1; overflow-y:auto; padding:10px 12px; display:flex; flex-direction:column; gap:7px; }
 .chat-messages::-webkit-scrollbar { width:3px; }
 .chat-messages::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
@@ -1062,7 +1257,7 @@ function exportPDF() {
 .qr-wrap { display:flex; justify-content:center; align-items:center; background:var(--bg); border-radius:var(--r-sm); padding:14px; min-height:204px; }
 .qr-wrap canvas, .qr-wrap img { border-radius:4px; display:block; }
 .share-url-row { display:flex; gap:8px; align-items:center; }
-.share-url-input { flex:1; background:var(--bg); border:1px solid var(--border2); border-radius:var(--r-sm); color:var(--muted); font-size:11px; padding:8px 10px; outline:none; font-family:monospace; }
+.share-url-input { flex:1; background:var(--bg); border:1px solid var(--border2); border-radius:var(--r-sm); color:var(--muted); font-size:11px; padding:8px 10px; outline:none; font-family:var(--font-mono); }
 .room-code-row { display:flex; align-items:center; gap:10px; background:var(--surface2); border-radius:var(--r-sm); padding:10px 14px; }
 .room-code-label { font-size:11px; color:var(--muted); flex:1; }
 .room-code { font-family:monospace; font-size:15px; font-weight:700; color:var(--accent2); letter-spacing:0.06em; word-break:break-all; }

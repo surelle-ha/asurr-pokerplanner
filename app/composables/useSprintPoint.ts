@@ -1,22 +1,22 @@
 // composables/useSprintPoint.ts
+//
+// Key design decision: members are NEVER deleted on leave.
+// Instead, leaving sets is_active=false. Rejoining sets is_active=true.
+// This keeps the same member.id across sessions, so Realtime UPDATE events
+// always match the existing row on other clients — no ghost entries, no
+// hard-refresh required.
+//
+// Run migration 007_member_active.sql to add the is_active column.
 
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import { useSupabaseRealtime } from './useSupabaseRealtime'
 import type { Database, Room, Member, Ticket, Vote, ChatMessage } from '~/types/sprintpoint'
 
 const COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ef4444', '#14b8a6']
-function randomColor() { return COLORS[Math.floor(Math.random() * COLORS.length)] }
+const HEARTBEAT_MS  = 20_000
+const OFFLINE_AFTER = 60_000
 
-// ── User identity ─────────────────────────────────────────────────────────────
-// Each user has a global fallback UUID (auto-generated, invisible) and an
-// optional room-scoped token they choose themselves. The room-scoped token
-// is stored as  sp_token:<roomId>  so rejoining with the same token reconnects
-// to the same member row — preventing duplicate seats.
-//
-// Token rules:
-//   • 4–24 characters, alphanumeric + hyphen/underscore
-//   • Stored per room so you can use different tokens in different rooms
-//   • Shown to the user after joining so they can write it down
+function randomColor() { return COLORS[Math.floor(Math.random() * COLORS.length)] }
 
 function getGlobalUserId(): string {
   if (typeof window === 'undefined') return 'ssr'
@@ -25,32 +25,39 @@ function getGlobalUserId(): string {
   if (!id) { id = crypto.randomUUID(); localStorage.setItem(KEY, id) }
   return id
 }
-
 function getRoomToken(roomId: string): string | null {
   if (typeof window === 'undefined') return null
   return localStorage.getItem(`sp_token:${roomId}`)
 }
-
 function setRoomToken(roomId: string, token: string) {
   if (typeof window === 'undefined') return
   localStorage.setItem(`sp_token:${roomId}`, token)
 }
+function saveSession(roomId: string, memberId: string) {
+  if (typeof window === 'undefined') return
+  localStorage.setItem('sp_session', JSON.stringify({ roomId, memberId }))
+}
+function clearSession() {
+  if (typeof window === 'undefined') return
+  localStorage.removeItem('sp_session')
+}
+function loadSession(): { roomId: string; memberId: string } | null {
+  if (typeof window === 'undefined') return null
+  try { return JSON.parse(localStorage.getItem('sp_session') || 'null') } catch { return null }
+}
 
-// Generate a memorable default token: adjective + noun + 3 digits
 const ADJ  = ['swift','bold','calm','keen','wise','epic','dark','cool','pure','loud']
 const NOUN = ['fox','hawk','wolf','bear','lion','crow','seal','deer','owl','lynx']
-function generateDefaultToken(): string {
+export function generateDefaultToken(): string {
   const a = ADJ[Math.floor(Math.random() * ADJ.length)]
   const n = NOUN[Math.floor(Math.random() * NOUN.length)]
-  const d = String(Math.floor(Math.random() * 900) + 100)
-  return `${a}-${n}-${d}`
+  return `${a}-${n}-${String(Math.floor(Math.random() * 900) + 100)}`
 }
 
 export function useSprintPoint() {
   const supabase = useSupabaseClient<Database>()
   const { subscribe, unsubscribe } = useSupabaseRealtime()
 
-  // ─── State ──────────────────────────────────────────────────────────────────
   const room         = ref<Room | null>(null)
   const members      = ref<Member[]>([])
   const tickets      = ref<Ticket[]>([])
@@ -59,14 +66,24 @@ export function useSprintPoint() {
   const currentUser  = ref<Member | null>(null)
   const loading      = ref(false)
   const error        = ref<string | null>(null)
-  const myToken      = ref<string | null>(null)   // the rejoin token for current room
+  const myToken      = ref<string | null>(null)
+  let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 
   // ─── Computed ────────────────────────────────────────────────────────────────
   const isLocked       = computed(() => room.value?.locked ?? false)
   const revealed       = computed(() => room.value?.revealed ?? false)
   const activeTicketId = computed(() => room.value?.active_ticket_id ?? null)
   const activeTicket   = computed(() => tickets.value.find(t => t.id === activeTicketId.value) ?? null)
-  const voters         = computed(() => members.value.filter(m => !m.is_spectator || (m.is_host && room.value?.host_can_vote)))
+
+  // Only show active members (is_active=true); inactive ones are hidden entirely
+  const activeMembers  = computed(() => members.value.filter(m => m.is_active !== false))
+  const voters         = computed(() => activeMembers.value.filter(m => !m.is_spectator || (m.is_host && room.value?.host_can_vote)))
+
+  // Online = active AND seen within OFFLINE_AFTER window
+  const onlineMembers  = computed(() => {
+    const cutoff = Date.now() - OFFLINE_AFTER
+    return activeMembers.value.filter(m => !m.last_seen || new Date(m.last_seen).getTime() > cutoff)
+  })
 
   const voteMap = computed(() => {
     const map: Record<string, string> = {}
@@ -105,10 +122,20 @@ export function useSprintPoint() {
         if (event === 'UPDATE' && room.value?.id === row.id) room.value = row
         if (event === 'DELETE' && room.value?.id === row.id) room.value = null
         break
+
       case 'members':
-        if (event === 'INSERT') members.value = [...members.value, row]
+        if (event === 'INSERT') {
+          if (!members.value.some(m => m.id === row.id)) {
+            members.value = [...members.value, row]
+          }
+        }
         if (event === 'UPDATE') {
-          members.value = members.value.map(m => m.id === row.id ? row : m)
+          if (members.value.some(m => m.id === row.id)) {
+            members.value = members.value.map(m => m.id === row.id ? row : m)
+          } else {
+            // Row exists in DB but not locally (e.g. was inactive when we loaded)
+            members.value = [...members.value, row]
+          }
           if (currentUser.value?.id === row.id) currentUser.value = row
         }
         if (event === 'DELETE') {
@@ -116,20 +143,37 @@ export function useSprintPoint() {
           if (currentUser.value?.id === row.id) currentUser.value = null
         }
         break
+
       case 'tickets':
         if (event === 'INSERT') tickets.value = [...tickets.value, row].sort((a, b) => a.order - b.order)
         if (event === 'UPDATE') tickets.value = tickets.value.map(t => t.id === row.id ? row : t)
         if (event === 'DELETE') tickets.value = tickets.value.filter(t => t.id !== row.id)
         break
+
       case 'votes':
         if (event === 'INSERT') votes.value = [...votes.value, row]
         if (event === 'UPDATE') votes.value = votes.value.map(v => v.id === row.id ? row : v)
         if (event === 'DELETE') votes.value = votes.value.filter(v => v.id !== row.id)
         break
+
       case 'chat_messages':
         if (event === 'INSERT') chatMessages.value = [...chatMessages.value, row]
         break
     }
+  }
+
+  // ─── Heartbeat ───────────────────────────────────────────────────────────────
+  function startHeartbeat() {
+    stopHeartbeat()
+    heartbeatTimer = setInterval(async () => {
+      if (!currentUser.value) return
+      await supabase.from('members')
+        .update({ last_seen: new Date().toISOString() })
+        .eq('id', currentUser.value.id)
+    }, HEARTBEAT_MS)
+  }
+  function stopHeartbeat() {
+    if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null }
   }
 
   // ─── Load room ───────────────────────────────────────────────────────────────
@@ -138,7 +182,8 @@ export function useSprintPoint() {
     try {
       const [roomRes, membersRes, ticketsRes, votesRes, chatRes] = await Promise.all([
         supabase.from('rooms').select('*').eq('id', roomId).single(),
-        supabase.from('members').select('*').eq('room_id', roomId),
+        // Only load active members for the initial snapshot
+        supabase.from('members').select('*').eq('room_id', roomId).eq('is_active', true),
         supabase.from('tickets').select('*').eq('room_id', roomId).order('order'),
         supabase.from('votes').select('*').eq('room_id', roomId),
         supabase.from('chat_messages').select('*').eq('room_id', roomId).order('created_at').limit(200),
@@ -150,6 +195,7 @@ export function useSprintPoint() {
       votes.value        = votesRes.data ?? []
       chatMessages.value = chatRes.data ?? []
       subscribe(roomId, handleRealtimeEvent)
+      startHeartbeat()
     } catch (err: any) {
       error.value = err.message ?? 'Failed to load room'
     } finally {
@@ -157,6 +203,40 @@ export function useSprintPoint() {
     }
   }
 
+  // ─── Resume session ───────────────────────────────────────────────────────────
+  async function resumeSession(): Promise<boolean> {
+    const session = loadSession()
+    if (!session) return false
+    const userId = getGlobalUserId()
+    const { data: existingRoom } = await supabase
+      .from('rooms').select('*').eq('id', session.roomId).maybeSingle()
+    if (!existingRoom) { clearSession(); return false }
+    let member: Member | null = null
+    const { data: byId } = await supabase
+      .from('members').select('*').eq('id', session.memberId).maybeSingle()
+    if (byId) {
+      member = byId
+    } else {
+      const { data: byUser } = await supabase
+        .from('members').select('*').eq('room_id', session.roomId).eq('user_id', userId).maybeSingle()
+      member = byUser ?? null
+    }
+    if (!member) { clearSession(); return false }
+    // Reactivate and update last_seen
+    const { data: refreshed } = await supabase
+      .from('members')
+      .update({ user_id: userId, is_active: true, last_seen: new Date().toISOString() })
+      .eq('id', member.id)
+      .select().single()
+    currentUser.value = refreshed ?? member
+    myToken.value = getRoomToken(session.roomId)
+    await loadRoom(session.roomId)
+    saveSession(session.roomId, member.id)
+    subscribeEmojiBroadcast(session.roomId)
+    return true
+  }
+
+  // ─── Helpers ─────────────────────────────────────────────────────────────────
   async function sysMsg(roomId: string, text: string) {
     await supabase.from('chat_messages').insert({
       room_id: roomId, member_id: null,
@@ -164,18 +244,20 @@ export function useSprintPoint() {
     })
   }
 
-  // ─── Emoji via Supabase Realtime Broadcast ────────────────────────────────────
-  // We use Realtime Broadcast (ephemeral, not persisted) instead of inserting into
-  // chat_messages. This is instant and doesn't pollute the chat table.
-  // The channel is already open from subscribe() — we piggyback on it.
+  const onEmojiReceived = ref<((emoji: string) => void) | null>(null)
+
   async function broadcastEmoji(emoji: string) {
     if (!room.value || !currentUser.value) return
-    // Ephemeral broadcast over the existing room channel
     const channel = (supabase as any).channel(`room:${room.value.id}`)
-    channel.send({
-      type: 'broadcast',
-      event: 'emoji',
-      payload: { emoji, from: currentUser.value.id },
+    channel.send({ type: 'broadcast', event: 'emoji', payload: { emoji, from: currentUser.value.id } })
+  }
+
+  function subscribeEmojiBroadcast(roomId: string) {
+    const channel = supabase.channel(`room:${roomId}`)
+    channel.on('broadcast', { event: 'emoji' }, (payload: any) => {
+      if (payload.payload?.from !== currentUser.value?.id) {
+        onEmojiReceived.value?.(payload.payload?.emoji)
+      }
     })
   }
 
@@ -186,28 +268,18 @@ export function useSprintPoint() {
     hostCanVote: boolean; allowSpectators: boolean; pin?: string; token?: string
   }) {
     const userId = getGlobalUserId()
-    // Use provided token or generate a memorable default
-    const token = (opts.token?.trim() || generateDefaultToken()).toLowerCase()
+    const token  = (opts.token?.trim() || generateDefaultToken()).toLowerCase()
     loading.value = true; error.value = null
     try {
       const { data: newRoom, error: roomErr } = await supabase
         .from('rooms')
-        .insert({
-          name: opts.name, description: opts.description ?? null,
-          host_id: userId, host_can_vote: opts.hostCanVote,
-          allow_spectators: opts.allowSpectators, locked: false,
-          revealed: false, active_ticket_id: null, pin: opts.pin || null,
-        })
+        .insert({ name: opts.name, description: opts.description ?? null, host_id: userId, host_can_vote: opts.hostCanVote, allow_spectators: opts.allowSpectators, locked: false, revealed: false, active_ticket_id: null, pin: opts.pin || null })
         .select().single()
       if (roomErr) throw roomErr
 
       const { data: hostMember, error: memberErr } = await supabase
         .from('members')
-        .insert({
-          room_id: newRoom.id, user_id: userId, name: opts.hostName,
-          color: randomColor(), is_host: true, is_spectator: false,
-          rejoin_token: token,
-        })
+        .insert({ room_id: newRoom.id, user_id: userId, name: opts.hostName, color: randomColor(), is_host: true, is_spectator: false, is_active: true, rejoin_token: token, last_seen: new Date().toISOString() })
         .select().single()
       if (memberErr) throw memberErr
 
@@ -216,8 +288,7 @@ export function useSprintPoint() {
       await sysMsg(newRoom.id, 'Room created! Share the room code with your team.')
       currentUser.value = hostMember
       await loadRoom(newRoom.id)
-
-      // Subscribe to emoji broadcasts
+      saveSession(newRoom.id, hostMember.id)
       subscribeEmojiBroadcast(newRoom.id)
       return newRoom.id
     } catch (err: any) {
@@ -228,7 +299,7 @@ export function useSprintPoint() {
   }
 
   async function joinRoom(roomCode: string, userName: string, isSpectator: boolean, pin?: string, token?: string) {
-    const userId = getGlobalUserId()
+    const userId     = getGlobalUserId()
     const finalToken = (token?.trim() || getRoomToken(roomCode) || generateDefaultToken()).toLowerCase()
 
     const { data: targetRoom, error: roomErr } = await supabase
@@ -238,59 +309,74 @@ export function useSprintPoint() {
     if (targetRoom.pin && targetRoom.pin !== pin) throw new Error('Incorrect PIN')
 
     const spectator = isSpectator && targetRoom.allow_spectators
+    let member: Member
 
-    // Check if a member with this token already exists → rejoin that seat
-    const { data: existing } = await supabase
-      .from('members')
-      .select('*')
+    // 1. Match by rejoin token (searches ALL members, active or inactive)
+    const { data: byToken } = await supabase
+      .from('members').select('*')
       .eq('room_id', roomCode)
       .eq('rejoin_token', finalToken)
       .maybeSingle()
 
-    let member: Member
-    if (existing) {
-      // Rejoin: always update the existing seat — new device gets ownership,
-      // new name is applied, and color is preserved from the original seat.
-      const nameChanged = existing.name !== userName
+    if (byToken) {
+      const nameChanged = byToken.name !== userName
+      // Always UPDATE (never insert) — keeps the same member.id so other
+      // clients' Realtime handlers patch the existing row cleanly
       const { data: updated, error: upErr } = await supabase
         .from('members')
-        .update({ user_id: userId, name: userName, is_spectator: spectator })
-        .eq('id', existing.id)
+        .update({
+          user_id: userId,
+          name: userName,
+          is_spectator: spectator,
+          is_active: true,
+          last_seen: new Date().toISOString(),
+        })
+        .eq('id', byToken.id)
         .select().single()
       if (upErr) throw upErr
       member = updated
-      const msg = nameChanged
-        ? `${existing.name} rejoined as ${userName}.`
-        : `${userName} rejoined.`
-      await sysMsg(targetRoom.id, msg)
+      await sysMsg(targetRoom.id, nameChanged
+        ? `${byToken.name} rejoined as ${userName}.`
+        : `${userName} rejoined.`)
     } else {
-      // No token match — check if this user_id already has a seat (page refresh / reconnect)
-      const { data: byUserId } = await supabase
-        .from('members')
-        .select('*')
+      // 2. Same browser / same user_id
+      const { data: byUser } = await supabase
+        .from('members').select('*')
         .eq('room_id', roomCode)
         .eq('user_id', userId)
         .maybeSingle()
 
-      if (byUserId) {
-        // Same browser re-joining: update name if changed, refresh token
-        const nameChanged = byUserId.name !== userName
+      if (byUser) {
+        const nameChanged = byUser.name !== userName
         const { data: updated, error: upErr } = await supabase
           .from('members')
-          .update({ name: userName, is_spectator: spectator, rejoin_token: finalToken })
-          .eq('id', byUserId.id)
+          .update({
+            name: userName,
+            is_spectator: spectator,
+            is_active: true,
+            rejoin_token: finalToken,
+            last_seen: new Date().toISOString(),
+          })
+          .eq('id', byUser.id)
           .select().single()
         if (upErr) throw upErr
         member = updated
-        if (nameChanged) await sysMsg(targetRoom.id, `${byUserId.name} is now known as ${userName}.`)
+        if (nameChanged) await sysMsg(targetRoom.id, `${byUser.name} is now known as ${userName}.`)
+        else await sysMsg(targetRoom.id, `${userName} rejoined.`)
       } else {
-        // Genuinely new seat
+        // 3. Genuinely new seat
         const { data: newMember, error: memberErr } = await supabase
           .from('members')
           .insert({
-            room_id: targetRoom.id, user_id: userId, name: userName,
-            color: randomColor(), is_host: false, is_spectator: spectator,
+            room_id: targetRoom.id,
+            user_id: userId,
+            name: userName,
+            color: randomColor(),
+            is_host: false,
+            is_spectator: spectator,
+            is_active: true,
             rejoin_token: finalToken,
+            last_seen: new Date().toISOString(),
           })
           .select().single()
         if (memberErr) throw memberErr
@@ -303,27 +389,11 @@ export function useSprintPoint() {
     myToken.value = finalToken
     currentUser.value = member
     await loadRoom(targetRoom.id)
+    saveSession(targetRoom.id, member.id)
     subscribeEmojiBroadcast(targetRoom.id)
     return targetRoom.id
   }
 
-  // ─── Emoji broadcast subscription ────────────────────────────────────────────
-  // Import the emojiFlash callback from the Vue component via a ref
-  const onEmojiReceived = ref<((emoji: string) => void) | null>(null)
-
-  function subscribeEmojiBroadcast(roomId: string) {
-    const channel = supabase.channel(`room:${roomId}`)
-    channel.on('broadcast', { event: 'emoji' }, (payload: any) => {
-      // Don't show our own emoji twice (we already trigger locally)
-      if (payload.payload?.from !== currentUser.value?.id) {
-        onEmojiReceived.value?.(payload.payload?.emoji)
-      }
-    })
-    // Note: channel.subscribe() is already called by useSupabaseRealtime on the
-    // same channel key — Supabase deduplicates channel subscriptions automatically.
-  }
-
-  // ── Host transfer ──────────────────────────────────────────────────────────
   async function passHostTo(memberId: string) {
     if (!room.value || !currentUser.value?.is_host) return
     const target = members.value.find(m => m.id === memberId)
@@ -418,10 +488,12 @@ export function useSprintPoint() {
     if (!room.value || !currentUser.value) return
     const roomId = room.value.id
     const leavingMember = { ...currentUser.value }
+    stopHeartbeat()
 
     if (leavingMember.is_host) {
+      // Demote self first
       await supabase.from('members').update({ is_host: false }).eq('id', leavingMember.id)
-      const successor = members.value.find(m => m.id !== leavingMember.id && !m.is_spectator)
+      const successor = activeMembers.value.find(m => m.id !== leavingMember.id && !m.is_spectator)
       if (successor) {
         await supabase.from('members').update({ is_host: true }).eq('id', successor.id)
         await supabase.from('rooms').update({ host_id: successor.user_id }).eq('id', roomId)
@@ -429,28 +501,39 @@ export function useSprintPoint() {
       }
     }
 
-    await supabase.from('members').delete().eq('id', leavingMember.id)
+    // Mark inactive instead of deleting — preserves the row for rejoin
+    await supabase.from('members')
+      .update({ is_active: false, last_seen: new Date().toISOString() })
+      .eq('id', leavingMember.id)
 
+    // Check if any active members remain; purge room if empty
     const { count } = await supabase
-      .from('members').select('*', { count: 'exact', head: true }).eq('room_id', roomId)
+      .from('members')
+      .select('*', { count: 'exact', head: true })
+      .eq('room_id', roomId)
+      .eq('is_active', true)
     if ((count ?? 0) === 0) {
       await supabase.from('rooms').delete().eq('id', roomId)
     }
 
     unsubscribe()
+    clearSession()
     room.value = null; members.value = []; tickets.value = []
     votes.value = []; chatMessages.value = []; currentUser.value = null
     myToken.value = null
   }
 
-  onUnmounted(unsubscribe)
+  onUnmounted(() => {
+    stopHeartbeat()
+    unsubscribe()
+  })
 
   return {
-    room, members, tickets, votes, chatMessages, currentUser, loading, error,
-    myToken, onEmojiReceived,
+    room, members: activeMembers, tickets, votes, chatMessages, currentUser,
+    loading, error, myToken, onEmojiReceived, onlineMembers,
     isLocked, revealed, activeTicketId, activeTicket, voters,
     voteMap, myVote, voteCount, voteStats, canVote,
-    generateDefaultToken,
+    generateDefaultToken, resumeSession,
     loadRoom, createRoom, joinRoom, toggleLock, addTicket, removeTicket,
     setActiveTicket, castVote, revealVotes, resetVoting, acceptScore,
     sendChat, leaveRoom, passHostTo, broadcastEmoji,
