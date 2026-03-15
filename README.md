@@ -52,16 +52,17 @@ Built and maintained by [@surelle-ha](https://github.com/surelle-ha) as part of 
 - [ ] Chat Component: Add Typing Event.
 - [ ] Chat Component: Add message bubble head on user image.
 - [ ] Landing Component: Vue-Bits Background.
-- [ ] Landing Component: Move `Support` badge beside `Contribute` badge.
-- [ ] Landing Component: Add `Watch Ad` button.
-- [ ] Landing Component: Remove `No Ads` phrase.
+- [x] Landing Component: Move `Support` badge beside `Contribute` badge.
+- [x] Landing Component: Add `Watch Ad` button.
+- [x] Landing Component: Remove `No Ads` phrase.
 - [ ] Scoring Component: Selecting final score spamming chat.
 - [ ] Scoring Component: Make `Now Estimating` Card Collapsible and Absolute.
 - [ ] Ticket Component: Change UI.
-- [ ] Ticket Component: Make this collapsible.
+- [x] Ticket Component: Make this collapsible.
+- [ ] Ticket Component: Revamp collapse state UI.
 - [ ] Ticket Component: Add re-score button on ticket list.
 - [ ] Ticket Component: Add URL Field.
-- [ ] Ticket Component: Change Export Icon.
+- [x] Ticket Component: Change Export Icon.
 - [ ] Ticket Component: Delete ticket function not working.
 - [ ] Ticket Component: Ticket Add Modal. 
 - [ ] Room Control: Invite AI Agent: `Ollama`

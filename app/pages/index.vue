@@ -16,6 +16,7 @@ const showAddTicket   = ref(false)
 const showShareModal  = ref(false)
 const showPassModal   = ref(false)   // pass host modal
 const showExportMenu  = ref(false)   // export dropdown
+const ticketsOpen     = ref(true)    // ticket sidebar collapsed state
 const emojiFlashes    = ref([])
 const qrContainer     = ref(null)
 const copied          = ref(false)
@@ -232,6 +233,11 @@ function openGitHub() {
   window.open('https://github.com/surelle-ha/asurr-pokerplanner', '_blank', 'noopener')
 }
 
+function watchAd() {
+  // Placeholder — integrate your ad SDK here (e.g. Google AdSense, AdMob Web)
+  alert('Ad functionality coming soon. Thank you for supporting the project! ☕')
+}
+
 async function copyToken() {
   if (!myToken.value) return
   try { await navigator.clipboard.writeText(myToken.value); tokenCopied.value = true; setTimeout(() => { tokenCopied.value = false }, 2000) } catch {}
@@ -301,11 +307,6 @@ function exportPDF() {
 <template>
   <div class="app">
 
-    <!-- Ko-fi support button -->
-    <a href="https://ko-fi.com/surelle" target="_blank" rel="noopener" class="kofi-btn" title="Support on Ko-fi">
-      ☕ Support
-    </a>
-
     <!-- Emoji overlay -->
     <div v-if="screen === 'room'" class="emoji-stage" aria-hidden="true">
       <transition-group name="eflash">
@@ -349,7 +350,7 @@ function exportPDF() {
           <div class="info-card__icon">💸</div>
           <div class="info-card__body">
             <strong>Free to use</strong>
-            <span>This platform is free for as long as I can sustain it. No ads, no paywalls.</span>
+            <span>This platform is free for as long as I can sustain it.</span>
           </div>
         </div>
         <div class="info-card">
@@ -377,14 +378,24 @@ function exportPDF() {
           class="footer-link footer-link--gh"
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-          Contribute on GitHub
+          Contribute
         </a>
+        <a
+          href="https://ko-fi.com/surelle"
+          target="_blank" rel="noopener"
+          class="footer-link footer-link--kofi"
+        >
+          ☕ Support
+        </a>
+        <button class="footer-link footer-link--ad" @click="watchAd">
+          📺 Watch Ad
+        </button>
         <a
           href="https://github.com/surelle-ha/asurr-pokerplanner/issues/new"
           target="_blank" rel="noopener"
           class="footer-link footer-link--suggest"
         >
-          💬 Suggest a Feature
+          💬 Suggest
         </a>
       </div>
 
@@ -524,13 +535,22 @@ function exportPDF() {
       <div class="room-body">
 
         <!-- LEFT: Tickets -->
-        <aside class="sidebar sidebar--left">
+        <aside class="sidebar sidebar--left" :class="{ 'sidebar--collapsed': !ticketsOpen }">
           <div class="sidebar-head">
-            <span class="section-label">Tickets</span>
-            <div style="display:flex;align-items:center;gap:6px">
+            <button class="sidebar-collapse-btn" @click="ticketsOpen = !ticketsOpen" :title="ticketsOpen ? 'Collapse tickets' : 'Expand tickets'">
+              <span class="section-label">Tickets</span>
+              <span class="collapse-chevron" :class="{ 'collapse-chevron--up': ticketsOpen }">‹</span>
+            </button>
+            <div v-if="ticketsOpen" style="display:flex;align-items:center;gap:6px">
               <!-- Export dropdown -->
               <div v-if="ticketHistory.length" class="export-wrap">
-                <button class="icon-btn" @click="showExportMenu=!showExportMenu" title="Export scores">↓</button>
+                <button class="icon-btn export-icon-btn" @click="showExportMenu=!showExportMenu" title="Export scores">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                </button>
                 <div v-if="showExportMenu" class="export-menu">
                   <button @click="exportJSON">Export JSON</button>
                   <button @click="exportPDF">Export PDF</button>
@@ -540,7 +560,7 @@ function exportPDF() {
             </div>
           </div>
           <transition name="slide-down">
-            <div v-if="showAddTicket" class="add-ticket-form">
+            <div v-if="ticketsOpen && showAddTicket" class="add-ticket-form">
               <input v-model="ticketInput.title" placeholder="Title (e.g. AUTH-123)" @keyup.enter="addTicket" />
               <textarea v-model="ticketInput.description" placeholder="Description (optional)" rows="2" />
               <div class="add-ticket-actions">
@@ -549,7 +569,7 @@ function exportPDF() {
               </div>
             </div>
           </transition>
-          <div class="ticket-list" style="overflow-anchor:none">
+          <div v-show="ticketsOpen" class="ticket-list" style="overflow-anchor:none">
             <div v-if="!tickets.length" class="empty-hint"><span>No tickets yet</span><small v-if="currentUser?.is_host">Tap ＋ above</small></div>
             <transition-group name="list-item" tag="div">
             <div
@@ -570,7 +590,7 @@ function exportPDF() {
             </div>
             </transition-group>
           </div>
-          <div v-if="ticketHistory.length" class="completed-section">
+          <div v-if="ticketsOpen && ticketHistory.length" class="completed-section">
             <div class="section-label" style="margin-bottom:7px">Completed</div>
             <div v-for="t in ticketHistory" :key="t.id" class="history-row">
               <span class="history-title">{{ t.title }}</span>
@@ -814,18 +834,7 @@ function exportPDF() {
   min-height: 100vh; overflow: hidden; position: relative;
 }
 
-/* ── Ko-fi ── */
-.kofi-btn {
-  position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
-  z-index: 800;
-  background: rgba(255,94,58,0.12); color: #ff6b3d;
-  border: 1px solid rgba(255,94,58,0.28); border-radius: 999px;
-  padding: 5px 14px; font-size: 12px; font-weight: 600;
-  text-decoration: none; cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-  white-space: nowrap;
-}
-.kofi-btn:hover { background: rgba(255,94,58,0.22); border-color: rgba(255,94,58,0.5); }
+
 
 /* ── Emoji overlay ── */
 .emoji-stage { position: fixed; inset: 0; pointer-events: none; z-index: 500; }
@@ -932,6 +941,17 @@ function exportPDF() {
   background: rgba(99,102,241,0.08);
 }
 .footer-link--suggest:hover { background: rgba(99,102,241,0.18); border-color: var(--accent); }
+.footer-link--kofi {
+  color: #ff6b3d; border-color: rgba(255,107,61,0.3);
+  background: rgba(255,107,61,0.08);
+}
+.footer-link--kofi:hover { background: rgba(255,107,61,0.18); border-color: rgba(255,107,61,0.6); }
+.footer-link--ad {
+  color: #10b981; border-color: rgba(16,185,129,0.3);
+  background: rgba(16,185,129,0.08); cursor: pointer;
+  font-family: inherit;
+}
+.footer-link--ad:hover { background: rgba(16,185,129,0.18); border-color: rgba(16,185,129,0.6); }
 
 .public-rooms { width:100%; max-width:520px; }
 .public-rooms__list { display:flex; flex-direction:column; gap:7px; margin-top:8px; }
@@ -1031,12 +1051,32 @@ function exportPDF() {
 .exit-pill:hover { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.4); color: #ef4444; }
 
 .host-controls { display:flex; gap:6px; }
-.room-body { display:grid; grid-template-columns:225px 1fr 250px; flex:1; overflow:hidden; }
+.room-body { display:grid; grid-template-columns:225px 1fr 250px; flex:1; overflow:hidden; transition: grid-template-columns 0.25s cubic-bezier(0.4,0,0.2,1); }
 
 /* ── Sidebars ── */
-.sidebar { background:var(--surface); display:flex; flex-direction:column; overflow:hidden; border-right:1px solid var(--border); }
+.sidebar { background:var(--surface); display:flex; flex-direction:column; overflow:hidden; border-right:1px solid var(--border); transition: width 0.25s cubic-bezier(0.4,0,0.2,1), min-width 0.25s cubic-bezier(0.4,0,0.2,1); }
 .sidebar--right { border-right:none; border-left:1px solid var(--border); }
+.sidebar--collapsed { min-width: 42px !important; width: 42px !important; overflow: hidden; }
 .sidebar-head { display:flex; align-items:center; justify-content:space-between; padding:13px 13px 8px; flex-shrink:0; }
+
+/* Collapsible sidebar head button */
+.sidebar-collapse-btn {
+  display: flex; align-items: center; gap: 6px;
+  background: none; border: none; cursor: pointer; padding: 0;
+  flex: 1; min-width: 0;
+}
+.sidebar-collapse-btn:hover .section-label { color: var(--text); }
+.collapse-chevron {
+  font-size: 16px; color: var(--muted); line-height: 1;
+  transform: rotate(-90deg);
+  transition: transform 0.22s cubic-bezier(0.4,0,0.2,1);
+  flex-shrink: 0;
+}
+.collapse-chevron--up { transform: rotate(90deg); }
+
+/* Export icon button tweak */
+.export-icon-btn { padding: 4px 6px; }
+.export-icon-btn svg { display: block; }
 .section-label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.09em; color:var(--muted); }
 .online-dot { font-size:11px; color:var(--muted); }
 .divider { height:1px; background:var(--border); flex-shrink:0; }
