@@ -57,13 +57,30 @@ useHead({
     {
       rel: 'canonical',
       href: `https://asurr-pokerplanner.vercel.app${route.path}`
+    },
+    {
+      rel: 'icon',
+      type: 'image/png',
+      href: '/favicon.png'
+    },
+    {
+      rel: 'apple-touch-icon',
+      href: '/apple-touch-icon.png'
     }
   ],
 
   meta: [
     {
+      name: 'viewport',
+      content: 'width=device-width, initial-scale=1'
+    },
+    {
       name: 'author',
       content: 'Asurr'
+    },
+    {
+      name: 'application-name',
+      content: 'Asurr SprintPoint'
     },
     {
       name: 'theme-color',
@@ -79,7 +96,6 @@ useHead({
     }
   ]
 })
-
 </script>
 
 <style>
@@ -106,7 +122,7 @@ body {
   padding: 0;
   margin: -1px;
   overflow: hidden;
-  clip: rect(0,0,0,0);
+  clip: rect(0, 0, 0, 0);
   border: 0;
 }
 </style>

@@ -38,12 +38,31 @@ Built and maintained by [@surelle-ha](https://github.com/surelle-ha) as part of 
 
 ## To Do List
 
-- Chore: Add `Terms & Condition`.
-- Feature: Add `Data Analytics` monitoring.
-- Chore: Rename GitHub repository name.
-- Feature: Add re-score button on ticket list.
-- Chore: Change export button icon.
-- Feature: Dockerfile for self-host.
+- [ ] Chore: Divide to components.
+- [ ] Chore: Add layouts.
+- [ ] Chore: Add `Terms & Condition`.
+- [ ] Feature: Add `Data Analytics` monitoring.
+- [ ] Chore: Rename GitHub repository name.
+- [ ] Feature: Add re-score button on ticket list.
+- [ ] Chore: Change export button icon.
+- [ ] Feature: Dockerfile for self-host.
+- [ ] Feature: Timer for time boxing.
+- [ ] Feature: Appearance - Dark, Light, System 
+- [ ] Feature: Invite AI: `Ollama`
+- [ ] Feature: Add dependency updater.
+- [ ] Fix: Delete ticket function not working.
+- [ ] Feature: Add message bubble head on user image.
+- [ ] Feature: Add typing event.
+- [ ] Fix: Selecting final score spamming chat.
+- [ ] Feature: Add tutorial, `intro.js`
+- [ ] Feature: Room Type: Estimation accuracy score
+- [ ] Feature: Room Type: Streak for correct estimates
+- [ ] Feature: Deck Type: Standard Fibonacci.
+- [ ] Feature: Deck Type: Modified Fibonacci.
+- [ ] Feature: Deck Type: T-Shirt.
+- [ ] Feature: Deck Type: Even.
+- [ ] Feature: Deck Type: Custom.
+- [ ] Feature: Vue-bits background.
 
 ---
 
