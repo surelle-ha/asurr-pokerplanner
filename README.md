@@ -38,31 +38,43 @@ Built and maintained by [@surelle-ha](https://github.com/surelle-ha) as part of 
 
 ## To Do List
 
-- [ ] Chore: Divide to components.
-- [ ] Chore: Add layouts.
-- [ ] Chore: Add `Terms & Condition`.
-- [ ] Feature: Add `Data Analytics` monitoring.
-- [ ] Chore: Rename GitHub repository name.
-- [ ] Feature: Add re-score button on ticket list.
-- [ ] Chore: Change export button icon.
-- [ ] Feature: Dockerfile for self-host.
-- [ ] Feature: Timer for time boxing.
-- [ ] Feature: Appearance - Dark, Light, System 
-- [ ] Feature: Invite AI: `Ollama`
-- [ ] Feature: Add dependency updater.
-- [ ] Fix: Delete ticket function not working.
-- [ ] Feature: Add message bubble head on user image.
-- [ ] Feature: Add typing event.
-- [ ] Fix: Selecting final score spamming chat.
-- [ ] Feature: Add tutorial, `intro.js`
-- [ ] Feature: Room Type: Estimation accuracy score
-- [ ] Feature: Room Type: Streak for correct estimates
-- [ ] Feature: Deck Type: Standard Fibonacci.
-- [ ] Feature: Deck Type: Modified Fibonacci.
-- [ ] Feature: Deck Type: T-Shirt.
-- [ ] Feature: Deck Type: Even.
-- [ ] Feature: Deck Type: Custom.
-- [ ] Feature: Vue-bits background.
+- [ ] Repository: Rename GitHub repository name.
+- [ ] Repository: Add CI/CD.
+- [ ] Repository: Security: Enable `main` branch protection.
+- [ ] Codebase: Divide to components.
+- [ ] Codebase: Add layouts.
+- [ ] Codebase: Add `Data Analytics` monitoring.
+- [ ] Codebase: Dockerfile for self-host.
+- [ ] Codebase: Add dependency updater.
+- [ ] All Component: Add Tutorial - `intro.js`
+- [ ] All Component: Appearance - Dark, Light, System 
+- [ ] Navigation Bar: Timer for time boxing.
+- [ ] Chat Component: Add Typing Event.
+- [ ] Chat Component: Add message bubble head on user image.
+- [ ] Landing Component: Vue-Bits Background.
+- [ ] Landing Component: Move `Support` badge beside `Contribute` badge.
+- [ ] Landing Component: Add `Watch Ad` button.
+- [ ] Landing Component: Remove `No Ads` phrase.
+- [ ] Scoring Component: Selecting final score spamming chat.
+- [ ] Scoring Component: Make `Now Estimating` Card Collapsible and Absolute.
+- [ ] Ticket Component: Change UI.
+- [ ] Ticket Component: Make this collapsible.
+- [ ] Ticket Component: Add re-score button on ticket list.
+- [ ] Ticket Component: Add URL Field.
+- [ ] Ticket Component: Change Export Icon.
+- [ ] Ticket Component: Delete ticket function not working.
+- [ ] Ticket Component: Ticket Add Modal. 
+- [ ] Room Control: Invite AI Agent: `Ollama`
+- [ ] Room Control: Add Kick User. 
+- [ ] Room Control: Delete or Purge Room
+- [ ] Room Creation Option: Enable Timer
+- [ ] Room Creation Option: `Terms & Condition` Checkbox.
+- [ ] Room Creation Option: Enable Leaderboard - Estimation accuracy score, Streak for correct estimates
+- [ ] Room Creation Option: Deck Type: Standard Fibonacci.
+- [ ] Room Creation Option: Deck Type: Modified Fibonacci.
+- [ ] Room Creation Option: Deck Type: T-Shirt.
+- [ ] Room Creation Option: Deck Type: Even.
+- [ ] Room Creation Option: Deck Type: Custom.
 
 ---
 
