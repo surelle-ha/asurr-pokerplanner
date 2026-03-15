@@ -344,27 +344,48 @@ function exportPDF() {
         </div>
       </div>
 
-      <!-- Info cards row -->
+      <!-- Info cards grid -->
       <div class="landing__info">
         <div class="info-card">
           <div class="info-card__icon">💸</div>
           <div class="info-card__body">
             <strong>Free to use</strong>
-            <span>This platform is free for as long as I can sustain it.</span>
+            <span>Free for as long as I can sustain it.</span>
+          </div>
+        </div>
+        <div class="info-card">
+          <div class="info-card__icon">👥</div>
+          <div class="info-card__body">
+            <strong>Unlimited Users</strong>
+            <span>No cap on how many teammates can join a room.</span>
+          </div>
+        </div>
+        <div class="info-card">
+          <div class="info-card__icon">🎫</div>
+          <div class="info-card__body">
+            <strong>No Ticket Limit</strong>
+            <span>Add as many tickets or tasks as your sprint needs.</span>
           </div>
         </div>
         <div class="info-card">
           <div class="info-card__icon">🗑️</div>
           <div class="info-card__body">
             <strong>Auto-purge</strong>
-            <span>All room data older than 3 days is automatically deleted. Nothing lingers.</span>
+            <span>All room data older than 3 days is deleted automatically.</span>
+          </div>
+        </div>
+        <div class="info-card">
+          <div class="info-card__icon">🤝</div>
+          <div class="info-card__body">
+            <strong>Community Trusted</strong>
+            <span>Built for real teams, used by real sprints.</span>
           </div>
         </div>
         <div class="info-card info-card--link" @click="openGitHub">
           <div class="info-card__icon">⭐</div>
           <div class="info-card__body">
             <strong>Open Source</strong>
-            <span>Fully open source on GitHub. Fork it, self-host it, contribute.</span>
+            <span>Fork it, self-host it, contribute on GitHub.</span>
           </div>
           <span class="info-card__arrow">→</span>
         </div>
@@ -904,14 +925,16 @@ function exportPDF() {
 
 /* Info cards */
 .landing__info {
-  display: flex; gap: 12px; flex-wrap: wrap; justify-content: center;
-  max-width: 680px; width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  max-width: 660px; width: 100%;
 }
 .info-card {
-  display: flex; align-items: flex-start; gap: 12px;
+  display: flex; align-items: flex-start; gap: 11px;
   background: rgba(19,23,32,0.85);
   border: 1px solid var(--border2); border-radius: var(--r);
-  padding: 14px 16px; flex: 1; min-width: 180px; max-width: 220px;
+  padding: 13px 14px;
   backdrop-filter: blur(8px);
   transition: border-color 0.2s, background 0.2s;
 }
