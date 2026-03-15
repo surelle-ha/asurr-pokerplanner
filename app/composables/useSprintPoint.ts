@@ -1,13 +1,24 @@
 // composables/useSprintPoint.ts
 
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { useSupabaseRealtime } from './useSupabaseRealtime'
 import type { Database, Room, Member, Ticket, Vote, ChatMessage } from '~/types/sprintpoint'
 
 const COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ef4444', '#14b8a6']
 function randomColor() { return COLORS[Math.floor(Math.random() * COLORS.length)] }
 
-function getOrCreateUserId(): string {
+// ── User identity ─────────────────────────────────────────────────────────────
+// Each user has a global fallback UUID (auto-generated, invisible) and an
+// optional room-scoped token they choose themselves. The room-scoped token
+// is stored as  sp_token:<roomId>  so rejoining with the same token reconnects
+// to the same member row — preventing duplicate seats.
+//
+// Token rules:
+//   • 4–24 characters, alphanumeric + hyphen/underscore
+//   • Stored per room so you can use different tokens in different rooms
+//   • Shown to the user after joining so they can write it down
+
+function getGlobalUserId(): string {
   if (typeof window === 'undefined') return 'ssr'
   const KEY = 'sp_user_id'
   let id = localStorage.getItem(KEY)
@@ -15,20 +26,42 @@ function getOrCreateUserId(): string {
   return id
 }
 
+function getRoomToken(roomId: string): string | null {
+  if (typeof window === 'undefined') return null
+  return localStorage.getItem(`sp_token:${roomId}`)
+}
+
+function setRoomToken(roomId: string, token: string) {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(`sp_token:${roomId}`, token)
+}
+
+// Generate a memorable default token: adjective + noun + 3 digits
+const ADJ  = ['swift','bold','calm','keen','wise','epic','dark','cool','pure','loud']
+const NOUN = ['fox','hawk','wolf','bear','lion','crow','seal','deer','owl','lynx']
+function generateDefaultToken(): string {
+  const a = ADJ[Math.floor(Math.random() * ADJ.length)]
+  const n = NOUN[Math.floor(Math.random() * NOUN.length)]
+  const d = String(Math.floor(Math.random() * 900) + 100)
+  return `${a}-${n}-${d}`
+}
+
 export function useSprintPoint() {
   const supabase = useSupabaseClient<Database>()
   const { subscribe, unsubscribe } = useSupabaseRealtime()
 
+  // ─── State ──────────────────────────────────────────────────────────────────
   const room         = ref<Room | null>(null)
   const members      = ref<Member[]>([])
   const tickets      = ref<Ticket[]>([])
   const votes        = ref<Vote[]>([])
   const chatMessages = ref<ChatMessage[]>([])
-  const publicRooms  = ref<Room[]>([])
   const currentUser  = ref<Member | null>(null)
   const loading      = ref(false)
   const error        = ref<string | null>(null)
+  const myToken      = ref<string | null>(null)   // the rejoin token for current room
 
+  // ─── Computed ────────────────────────────────────────────────────────────────
   const isLocked       = computed(() => room.value?.locked ?? false)
   const revealed       = computed(() => room.value?.revealed ?? false)
   const activeTicketId = computed(() => room.value?.active_ticket_id ?? null)
@@ -65,6 +98,7 @@ export function useSprintPoint() {
     return !revealed.value
   })
 
+  // ─── Realtime handler ────────────────────────────────────────────────────────
   function handleRealtimeEvent(event: 'INSERT' | 'UPDATE' | 'DELETE', table: string, row: any) {
     switch (table) {
       case 'rooms':
@@ -79,7 +113,6 @@ export function useSprintPoint() {
         }
         if (event === 'DELETE') {
           members.value = members.value.filter(m => m.id !== row.id)
-          // If we lost our own seat somehow, sync it
           if (currentUser.value?.id === row.id) currentUser.value = null
         }
         break
@@ -99,9 +132,9 @@ export function useSprintPoint() {
     }
   }
 
+  // ─── Load room ───────────────────────────────────────────────────────────────
   async function loadRoom(roomId: string) {
-    loading.value = true
-    error.value = null
+    loading.value = true; error.value = null
     try {
       const [roomRes, membersRes, ticketsRes, votesRes, chatRes] = await Promise.all([
         supabase.from('rooms').select('*').eq('id', roomId).single(),
@@ -111,10 +144,10 @@ export function useSprintPoint() {
         supabase.from('chat_messages').select('*').eq('room_id', roomId).order('created_at').limit(200),
       ])
       if (roomRes.error) throw roomRes.error
-      room.value = roomRes.data
-      members.value = membersRes.data ?? []
-      tickets.value = ticketsRes.data ?? []
-      votes.value = votesRes.data ?? []
+      room.value         = roomRes.data
+      members.value      = membersRes.data ?? []
+      tickets.value      = ticketsRes.data ?? []
+      votes.value        = votesRes.data ?? []
       chatMessages.value = chatRes.data ?? []
       subscribe(roomId, handleRealtimeEvent)
     } catch (err: any) {
@@ -124,32 +157,68 @@ export function useSprintPoint() {
     }
   }
 
-  async function loadPublicRooms() {
-    const { data } = await supabase.from('rooms').select('*').eq('locked', false).order('created_at', { ascending: false }).limit(20)
-    publicRooms.value = data ?? []
-  }
-
   async function sysMsg(roomId: string, text: string) {
-    await supabase.from('chat_messages').insert({ room_id: roomId, member_id: null, user_name: 'System', user_color: '#6366f1', text, type: 'system' })
+    await supabase.from('chat_messages').insert({
+      room_id: roomId, member_id: null,
+      user_name: 'System', user_color: '#6366f1', text, type: 'system',
+    })
   }
 
-  async function createRoom(opts: { name: string; description?: string; hostName: string; hostCanVote: boolean; allowSpectators: boolean; pin?: string }) {
-    const userId = getOrCreateUserId()
+  // ─── Emoji via Supabase Realtime Broadcast ────────────────────────────────────
+  // We use Realtime Broadcast (ephemeral, not persisted) instead of inserting into
+  // chat_messages. This is instant and doesn't pollute the chat table.
+  // The channel is already open from subscribe() — we piggyback on it.
+  async function broadcastEmoji(emoji: string) {
+    if (!room.value || !currentUser.value) return
+    // Ephemeral broadcast over the existing room channel
+    const channel = (supabase as any).channel(`room:${room.value.id}`)
+    channel.send({
+      type: 'broadcast',
+      event: 'emoji',
+      payload: { emoji, from: currentUser.value.id },
+    })
+  }
+
+  // ─── Actions ─────────────────────────────────────────────────────────────────
+
+  async function createRoom(opts: {
+    name: string; description?: string; hostName: string
+    hostCanVote: boolean; allowSpectators: boolean; pin?: string; token?: string
+  }) {
+    const userId = getGlobalUserId()
+    // Use provided token or generate a memorable default
+    const token = (opts.token?.trim() || generateDefaultToken()).toLowerCase()
     loading.value = true; error.value = null
     try {
       const { data: newRoom, error: roomErr } = await supabase
         .from('rooms')
-        .insert({ name: opts.name, description: opts.description ?? null, host_id: userId, host_can_vote: opts.hostCanVote, allow_spectators: opts.allowSpectators, locked: false, revealed: false, active_ticket_id: null, pin: opts.pin || null })
+        .insert({
+          name: opts.name, description: opts.description ?? null,
+          host_id: userId, host_can_vote: opts.hostCanVote,
+          allow_spectators: opts.allowSpectators, locked: false,
+          revealed: false, active_ticket_id: null, pin: opts.pin || null,
+        })
         .select().single()
       if (roomErr) throw roomErr
+
       const { data: hostMember, error: memberErr } = await supabase
         .from('members')
-        .insert({ room_id: newRoom.id, user_id: userId, name: opts.hostName, color: randomColor(), is_host: true, is_spectator: false })
+        .insert({
+          room_id: newRoom.id, user_id: userId, name: opts.hostName,
+          color: randomColor(), is_host: true, is_spectator: false,
+          rejoin_token: token,
+        })
         .select().single()
       if (memberErr) throw memberErr
+
+      setRoomToken(newRoom.id, token)
+      myToken.value = token
       await sysMsg(newRoom.id, 'Room created! Share the room code with your team.')
       currentUser.value = hostMember
       await loadRoom(newRoom.id)
+
+      // Subscribe to emoji broadcasts
+      subscribeEmojiBroadcast(newRoom.id)
       return newRoom.id
     } catch (err: any) {
       error.value = err.message; throw err
@@ -158,22 +227,100 @@ export function useSprintPoint() {
     }
   }
 
-  async function joinRoom(roomCode: string, userName: string, isSpectator: boolean, pin?: string) {
-    const userId = getOrCreateUserId()
-    const { data: targetRoom, error: roomErr } = await supabase.from('rooms').select('*').eq('id', roomCode).single()
+  async function joinRoom(roomCode: string, userName: string, isSpectator: boolean, pin?: string, token?: string) {
+    const userId = getGlobalUserId()
+    const finalToken = (token?.trim() || getRoomToken(roomCode) || generateDefaultToken()).toLowerCase()
+
+    const { data: targetRoom, error: roomErr } = await supabase
+      .from('rooms').select('*').eq('id', roomCode).single()
     if (roomErr || !targetRoom) throw new Error('Room not found')
     if (targetRoom.locked) throw new Error('Room is locked')
     if (targetRoom.pin && targetRoom.pin !== pin) throw new Error('Incorrect PIN')
+
     const spectator = isSpectator && targetRoom.allow_spectators
-    const { data: member, error: memberErr } = await supabase
+
+    // Check if a member with this token already exists → rejoin that seat
+    const { data: existing } = await supabase
       .from('members')
-      .upsert({ room_id: targetRoom.id, user_id: userId, name: userName, color: randomColor(), is_host: false, is_spectator: spectator }, { onConflict: 'room_id,user_id' })
-      .select().single()
-    if (memberErr) throw memberErr
-    await sysMsg(targetRoom.id, `${userName} joined${spectator ? ' as spectator' : ''}.`)
+      .select('*')
+      .eq('room_id', roomCode)
+      .eq('rejoin_token', finalToken)
+      .maybeSingle()
+
+    let member: Member
+    if (existing) {
+      // Rejoin: always update the existing seat — new device gets ownership,
+      // new name is applied, and color is preserved from the original seat.
+      const nameChanged = existing.name !== userName
+      const { data: updated, error: upErr } = await supabase
+        .from('members')
+        .update({ user_id: userId, name: userName, is_spectator: spectator })
+        .eq('id', existing.id)
+        .select().single()
+      if (upErr) throw upErr
+      member = updated
+      const msg = nameChanged
+        ? `${existing.name} rejoined as ${userName}.`
+        : `${userName} rejoined.`
+      await sysMsg(targetRoom.id, msg)
+    } else {
+      // No token match — check if this user_id already has a seat (page refresh / reconnect)
+      const { data: byUserId } = await supabase
+        .from('members')
+        .select('*')
+        .eq('room_id', roomCode)
+        .eq('user_id', userId)
+        .maybeSingle()
+
+      if (byUserId) {
+        // Same browser re-joining: update name if changed, refresh token
+        const nameChanged = byUserId.name !== userName
+        const { data: updated, error: upErr } = await supabase
+          .from('members')
+          .update({ name: userName, is_spectator: spectator, rejoin_token: finalToken })
+          .eq('id', byUserId.id)
+          .select().single()
+        if (upErr) throw upErr
+        member = updated
+        if (nameChanged) await sysMsg(targetRoom.id, `${byUserId.name} is now known as ${userName}.`)
+      } else {
+        // Genuinely new seat
+        const { data: newMember, error: memberErr } = await supabase
+          .from('members')
+          .insert({
+            room_id: targetRoom.id, user_id: userId, name: userName,
+            color: randomColor(), is_host: false, is_spectator: spectator,
+            rejoin_token: finalToken,
+          })
+          .select().single()
+        if (memberErr) throw memberErr
+        member = newMember
+        await sysMsg(targetRoom.id, `${userName} joined${spectator ? ' as spectator' : ''}.`)
+      }
+    }
+
+    setRoomToken(roomCode, finalToken)
+    myToken.value = finalToken
     currentUser.value = member
     await loadRoom(targetRoom.id)
+    subscribeEmojiBroadcast(targetRoom.id)
     return targetRoom.id
+  }
+
+  // ─── Emoji broadcast subscription ────────────────────────────────────────────
+  // Import the emojiFlash callback from the Vue component via a ref
+  const onEmojiReceived = ref<((emoji: string) => void) | null>(null)
+
+  function subscribeEmojiBroadcast(roomId: string) {
+    const channel = supabase.channel(`room:${roomId}`)
+    channel.on('broadcast', { event: 'emoji' }, (payload: any) => {
+      // Don't show our own emoji twice (we already trigger locally)
+      if (payload.payload?.from !== currentUser.value?.id) {
+        onEmojiReceived.value?.(payload.payload?.emoji)
+      }
+    })
+    // Note: channel.subscribe() is already called by useSupabaseRealtime on the
+    // same channel key — Supabase deduplicates channel subscriptions automatically.
   }
 
   // ── Host transfer ──────────────────────────────────────────────────────────
@@ -181,12 +328,10 @@ export function useSprintPoint() {
     if (!room.value || !currentUser.value?.is_host) return
     const target = members.value.find(m => m.id === memberId)
     if (!target) return
-    // Strip host from current user
-    await supabase.from('members').update({ is_host: false }).eq('id', currentUser.value.id)
-    // Promote target
+    const prevHostId = currentUser.value.id
     await supabase.from('members').update({ is_host: true }).eq('id', memberId)
-    // Update room host_id
     await supabase.from('rooms').update({ host_id: target.user_id }).eq('id', room.value.id)
+    await supabase.from('members').update({ is_host: false }).eq('id', prevHostId)
     await sysMsg(room.value.id, `${target.name} is now the host.`)
   }
 
@@ -201,7 +346,9 @@ export function useSprintPoint() {
     if (!room.value) return
     const maxOrder = tickets.value.reduce((m, t) => Math.max(m, t.order), -1)
     const { data: ticket, error: err } = await supabase
-      .from('tickets').insert({ room_id: room.value.id, title, description: description ?? null, order: maxOrder + 1 }).select().single()
+      .from('tickets')
+      .insert({ room_id: room.value.id, title, description: description ?? null, order: maxOrder + 1 })
+      .select().single()
     if (err) { error.value = err.message; return }
     if (!room.value.active_ticket_id) await setActiveTicket(ticket.id)
     else await sysMsg(room.value.id, `Ticket added: "${title}"`)
@@ -226,7 +373,10 @@ export function useSprintPoint() {
     if (!canVote.value || !currentUser.value || !room.value || !activeTicketId.value) return
     const existing = votes.value.find(v => v.ticket_id === activeTicketId.value && v.member_id === currentUser.value!.id)
     if (existing && existing.value === value) await supabase.from('votes').delete().eq('id', existing.id)
-    else await supabase.from('votes').upsert({ room_id: room.value.id, ticket_id: activeTicketId.value, member_id: currentUser.value.id, value }, { onConflict: 'ticket_id,member_id' })
+    else await supabase.from('votes').upsert(
+      { room_id: room.value.id, ticket_id: activeTicketId.value, member_id: currentUser.value.id, value },
+      { onConflict: 'ticket_id,member_id' }
+    )
   }
 
   async function revealVotes() {
@@ -257,17 +407,20 @@ export function useSprintPoint() {
 
   async function sendChat(text: string) {
     if (!room.value || !currentUser.value || !text.trim()) return
-    await supabase.from('chat_messages').insert({ room_id: room.value.id, member_id: currentUser.value.id, user_name: currentUser.value.name, user_color: currentUser.value.color, text: text.trim(), type: 'chat' })
+    await supabase.from('chat_messages').insert({
+      room_id: room.value.id, member_id: currentUser.value.id,
+      user_name: currentUser.value.name, user_color: currentUser.value.color,
+      text: text.trim(), type: 'chat',
+    })
   }
 
   async function leaveRoom() {
     if (!room.value || !currentUser.value) return
     const roomId = room.value.id
-    const leavingMember = currentUser.value
-    unsubscribe()
+    const leavingMember = { ...currentUser.value }
 
-    // If host is leaving, promote next member first
     if (leavingMember.is_host) {
+      await supabase.from('members').update({ is_host: false }).eq('id', leavingMember.id)
       const successor = members.value.find(m => m.id !== leavingMember.id && !m.is_spectator)
       if (successor) {
         await supabase.from('members').update({ is_host: true }).eq('id', successor.id)
@@ -277,19 +430,29 @@ export function useSprintPoint() {
     }
 
     await supabase.from('members').delete().eq('id', leavingMember.id)
-    const { count } = await supabase.from('members').select('*', { count: 'exact', head: true }).eq('room_id', roomId)
-    if (count === 0) await supabase.from('rooms').delete().eq('id', roomId)
 
+    const { count } = await supabase
+      .from('members').select('*', { count: 'exact', head: true }).eq('room_id', roomId)
+    if ((count ?? 0) === 0) {
+      await supabase.from('rooms').delete().eq('id', roomId)
+    }
+
+    unsubscribe()
     room.value = null; members.value = []; tickets.value = []
     votes.value = []; chatMessages.value = []; currentUser.value = null
+    myToken.value = null
   }
 
   onUnmounted(unsubscribe)
 
   return {
-    room, members, tickets, votes, chatMessages, publicRooms, currentUser, loading, error,
-    isLocked, revealed, activeTicketId, activeTicket, voters, voteMap, myVote, voteCount, voteStats, canVote,
-    loadPublicRooms, createRoom, joinRoom, toggleLock, addTicket, removeTicket,
-    setActiveTicket, castVote, revealVotes, resetVoting, acceptScore, sendChat, leaveRoom, passHostTo,
+    room, members, tickets, votes, chatMessages, currentUser, loading, error,
+    myToken, onEmojiReceived,
+    isLocked, revealed, activeTicketId, activeTicket, voters,
+    voteMap, myVote, voteCount, voteStats, canVote,
+    generateDefaultToken,
+    loadRoom, createRoom, joinRoom, toggleLock, addTicket, removeTicket,
+    setActiveTicket, castVote, revealVotes, resetVoting, acceptScore,
+    sendChat, leaveRoom, passHostTo, broadcastEmoji,
   }
 }

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, reactive, nextTick, onMounted } from 'vue'
+import { ref, computed, reactive, watch, nextTick, onMounted } from 'vue'
 
 const FIBONACCI = ['?', '0', '1', '2', '3', '5', '8', '13', '21', '34', '55', '☕']
 const EMOJI_LIST = ['🔥', '💡', '🤔', '😅', '🎉', '👀', '💀', '🚀', '❤️', '👏']
@@ -19,12 +19,13 @@ const showExportMenu  = ref(false)   // export dropdown
 const emojiFlashes    = ref([])
 const qrContainer     = ref(null)
 const copied          = ref(false)
+const tokenCopied     = ref(false)
 
 // Forms
-const createForm   = reactive({ roomName: '', description: '', hostName: '', hostCanVote: true, allowSpectators: true, pin: '' })
+const createForm   = reactive({ roomName: '', description: '', hostName: '', hostCanVote: true, allowSpectators: true, pin: '', token: '' })
 const createErrors = reactive({ roomName: false, hostName: false })
-const joinForm     = reactive({ userName: '', isSpectator: false, roomCode: '', pin: '' })
-const joinErrors   = reactive({ userName: false, roomCode: false, pin: false })
+const joinForm     = reactive({ userName: '', isSpectator: false, roomCode: '', pin: '', token: '' })
+const joinErrors   = reactive({ userName: false, roomCode: false, pin: false, token: false })
 
 // ─── Composable aliases ───────────────────────────────────────────────────────
 const room           = sp.room
@@ -41,8 +42,8 @@ const myVote         = sp.myVote
 const voteCount      = sp.voteCount
 const voteStats      = sp.voteStats
 const canVote        = sp.canVote
-const publicRooms    = sp.publicRooms
 const currentUser    = sp.currentUser
+const myToken        = sp.myToken
 
 // ─── Computed ─────────────────────────────────────────────────────────────────
 const ticketHistory = computed(() => tickets.value.filter(t => t.final_score !== null))
@@ -55,18 +56,26 @@ const tableSeats = computed(() => {
   return all.map((m, i) => {
     const angle = (i / all.length) * 2 * Math.PI - Math.PI / 2
     // card pos: inside the oval (smaller radii)
-    const cx = 50 + 32 * Math.cos(angle)
-    const cy = 50 + 28 * Math.sin(angle)
+    const cx = 50 + 30 * Math.cos(angle)
+    const cy = 50 + 26 * Math.sin(angle)
     // name label pos: outside the oval (larger radii)
-    const nx = 50 + 50 * Math.cos(angle)
-    const ny = 50 + 44 * Math.sin(angle)
+    const nx = 50 + 46 * Math.cos(angle)
+    const ny = 50 + 40 * Math.sin(angle)
     return { ...m, cx, cy, nx, ny }
   })
 })
 
-const joinRoomPreview = computed(() => {
-  const code = joinForm.roomCode.trim()
-  return code ? (sp.publicRooms.value.find(r => r.id === code) ?? null) : null
+// Fetched directly when user types a room code; no public listing needed
+const joinRoomPreview = ref(null)
+let previewTimer = null
+watch(() => joinForm.roomCode, async (val) => {
+  clearTimeout(previewTimer)
+  const code = val.trim()
+  if (!code) { joinRoomPreview.value = null; return }
+  previewTimer = setTimeout(async () => {
+    const { data } = await useSupabaseClient().from('rooms').select('*').eq('id', code).maybeSingle()
+    joinRoomPreview.value = data ?? null
+  }, 300)
 })
 
 const shareUrl = computed(() => {
@@ -76,7 +85,6 @@ const shareUrl = computed(() => {
 })
 
 onMounted(async () => {
-  await sp.loadPublicRooms()
   const code = new URLSearchParams(window.location.search).get('room')
   if (code) { joinForm.roomCode = code; screen.value = 'join' }
 })
@@ -94,6 +102,7 @@ async function createRoom() {
       hostCanVote: createForm.hostCanVote,
       allowSpectators: createForm.allowSpectators,
       pin: createForm.pin.trim() || undefined,
+      token: createForm.token.trim() || undefined,
     })
     screen.value = 'room'
   } catch (e) { console.error(e) }
@@ -105,7 +114,7 @@ async function joinRoom() {
   joinErrors.userName  = !joinForm.userName.trim()
   if (joinErrors.roomCode || joinErrors.userName) return
   try {
-    await sp.joinRoom(code, joinForm.userName.trim(), joinForm.isSpectator, joinForm.pin.trim() || undefined)
+    await sp.joinRoom(code, joinForm.userName.trim(), joinForm.isSpectator, joinForm.pin.trim() || undefined, joinForm.token.trim() || undefined)
     screen.value = 'room'
   } catch (e) {
     if (e.message === 'Room not found')   joinErrors.roomCode = true
@@ -113,8 +122,6 @@ async function joinRoom() {
     if (e.message === 'Incorrect PIN')    joinErrors.pin = true
   }
 }
-
-function joinPublicRoom(id) { joinForm.roomCode = id; screen.value = 'join' }
 
 async function toggleLock()        { await sp.toggleLock() }
 async function revealVotes()       { await sp.revealVotes() }
@@ -151,16 +158,28 @@ async function backToLanding() {
   await sp.leaveRoom()
   screen.value = 'landing'
   showShareModal.value = false; showAddTicket.value = false; showPassModal.value = false
-  Object.assign(createForm, { roomName: '', description: '', hostName: '', hostCanVote: true, allowSpectators: true, pin: '' })
-  Object.assign(joinForm, { userName: '', isSpectator: false, roomCode: '', pin: '' })
+  Object.assign(createForm, { roomName: '', description: '', hostName: '', hostCanVote: true, allowSpectators: true, pin: '', token: '' })
+  Object.assign(joinForm, { userName: '', isSpectator: false, roomCode: '', pin: '', token: '' })
 }
 
 // ─── Emoji ────────────────────────────────────────────────────────────────────
-function sendEmoji(emoji) {
-  const flash = { id: Math.random().toString(36).slice(2), emoji, x: 20 + Math.random() * 60, y: 10 + Math.random() * 60 }
+// Emoji uses Supabase Realtime Broadcast (ephemeral, not persisted to DB).
+// Local user sees their own flash immediately.
+// Remote users receive via the onEmojiReceived callback registered in composable.
+
+function triggerEmojiFlash(emoji) {
+  const flash = { id: Math.random().toString(36).slice(2), emoji, x: 15 + Math.random() * 70, y: 5 + Math.random() * 70 }
   emojiFlashes.value.push(flash)
   setTimeout(() => { emojiFlashes.value = emojiFlashes.value.filter(e => e.id !== flash.id) }, 2500)
 }
+
+async function sendEmoji(emoji) {
+  triggerEmojiFlash(emoji)           // immediate local flash
+  await sp.broadcastEmoji(emoji)     // broadcast to all other users via Realtime
+}
+
+// Register the callback so the composable can trigger flashes for incoming emojis
+sp.onEmojiReceived.value = (emoji) => { triggerEmojiFlash(emoji) }
 
 // ─── Share & QR ───────────────────────────────────────────────────────────────
 async function openShare() { showShareModal.value = true; await nextTick(); renderQR() }
@@ -180,6 +199,11 @@ function renderQR() {
 
 async function copyLink() {
   try { await navigator.clipboard.writeText(shareUrl.value); copied.value = true; setTimeout(() => { copied.value = false }, 2000) } catch {}
+}
+
+async function copyToken() {
+  if (!myToken.value) return
+  try { await navigator.clipboard.writeText(myToken.value); tokenCopied.value = true; setTimeout(() => { tokenCopied.value = false }, 2000) } catch {}
 }
 
 // ─── Export ───────────────────────────────────────────────────────────────────
@@ -259,7 +283,8 @@ function exportPDF() {
     </div>
 
     <!-- ══ LANDING ══════════════════════════════════════════════════ -->
-    <div v-if="screen === 'landing'" class="landing">
+    <transition name="screen-fade" mode="out-in">
+    <div v-if="screen === 'landing'" key="landing" class="landing">
       <div class="landing__hero">
         <div class="landing__badge">Planning Poker</div>
         <h1 class="landing__title">Sprint<span class="accent">Point</span></h1>
@@ -269,31 +294,12 @@ function exportPDF() {
           <button class="btn btn--ghost" @click="screen = 'join'">Join Room</button>
         </div>
       </div>
-      <div class="landing__cards">
-        <div v-for="(n, i) in FIBONACCI.slice(1, 7)" :key="n" class="landing__card" :style="{ animationDelay: i*0.1+'s' }">{{ n }}</div>
-      </div>
-      <transition name="fade-up">
-        <div v-if="publicRooms.length" class="public-rooms">
-          <div class="section-label">Open Rooms</div>
-          <div class="public-rooms__list">
-            <div v-for="r in publicRooms" :key="r.id" class="pub-card" @click="joinPublicRoom(r.id)">
-              <div class="pub-card__left">
-                <span class="pub-card__name">{{ r.name }}</span>
-                <span v-if="r.description" class="pub-card__desc">{{ r.description }}</span>
-              </div>
-              <div class="pub-card__right">
-                <span v-if="r.pin" class="chip chip--pin">🔐 PIN</span>
-                <span class="chip">{{ r.members?.length ?? 0 }} 👤</span>
-                <span class="join-arrow">Join →</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </transition>
+
+
     </div>
 
     <!-- ══ CREATE ════════════════════════════════════════════════════ -->
-    <div v-else-if="screen === 'create'" class="form-screen">
+    <div v-else-if="screen === 'create'" key="create" class="form-screen">
       <div class="form-card">
         <button class="back-btn" @click="screen = 'landing'">← Back</button>
         <h2>Create a Room</h2>
@@ -316,6 +322,11 @@ function exportPDF() {
           <label>Room PIN <span class="optional">(optional — protects the room with a code)</span></label>
           <input v-model="createForm.pin" placeholder="e.g. 1234" maxlength="12" />
         </div>
+        <div class="field">
+          <label>Your Rejoin Token <span class="optional">(optional)</span></label>
+          <input v-model="createForm.token" placeholder="e.g. swift-fox-412 (auto-generated if blank)" maxlength="32" />
+          <span class="field-hint">Save this token — you can use it to rejoin as the same user if you disconnect.</span>
+        </div>
         <div class="toggles">
           <label class="toggle-row">
             <span class="toggle-label"><strong>Host can vote</strong><small>Participate in estimation rounds</small></span>
@@ -334,7 +345,7 @@ function exportPDF() {
     </div>
 
     <!-- ══ JOIN ══════════════════════════════════════════════════════ -->
-    <div v-else-if="screen === 'join'" class="form-screen">
+    <div v-else-if="screen === 'join'" key="join" class="form-screen">
       <div class="form-card">
         <button class="back-btn" @click="screen = 'landing'">← Back</button>
         <h2>Join a Room</h2>
@@ -365,6 +376,11 @@ function exportPDF() {
           <span class="toggle-label"><strong>Join as Spectator</strong><small>Watch without voting</small></span>
           <div class="toggle-wrap"><input type="checkbox" v-model="joinForm.isSpectator" /><span class="toggle-track" /></div>
         </label>
+        <div class="field">
+          <label>Rejoin Token <span class="optional">(optional)</span></label>
+          <input v-model="joinForm.token" placeholder="Your token from a previous session" maxlength="32" />
+          <span class="field-hint">Enter your previous token to reclaim your seat. Leave blank for a new auto-generated one.</span>
+        </div>
         <div v-if="sp.error.value" class="field-err err-box">{{ sp.error.value }}</div>
         <button class="btn btn--primary btn--full" :disabled="sp.loading.value" @click="joinRoom">
           {{ sp.loading.value ? 'Joining…' : 'Join Room →' }}
@@ -373,7 +389,7 @@ function exportPDF() {
     </div>
 
     <!-- ══ ROOM ═══════════════════════════════════════════════════════ -->
-    <div v-else-if="screen === 'room' && room" class="room">
+    <div v-else-if="screen === 'room' && room" key="room" class="room">
 
       <header class="room-header">
         <!-- Left: room title -->
@@ -388,13 +404,19 @@ function exportPDF() {
         <div class="room-header__right">
           <div v-if="sp.loading.value" class="sync-badge">syncing…</div>
 
-          <!-- User info + exit stacked together -->
-          <div class="user-stack">
+          <!-- Compact single-row: avatar · name · token · exit -->
+          <div class="hdr-user-row">
             <div class="me-badge" :style="{ borderColor: currentUser?.color }">
               <div class="av av--xs" :style="{ background: currentUser?.color }">{{ initials(currentUser?.name ?? '?') }}</div>
               <span>{{ currentUser?.name }}<span v-if="currentUser?.is_host" class="me-role">host</span></span>
             </div>
-            <button class="exit-btn" @click="backToLanding">← Exit Room</button>
+            <button
+              v-if="myToken"
+              class="token-pill"
+              :title="tokenCopied ? 'Copied!' : 'Click to copy your rejoin token'"
+              @click="copyToken"
+            >🔑 {{ myToken }}<span class="token-pill__copy">{{ tokenCopied ? '✓' : '⎘' }}</span></button>
+            <button class="exit-pill" @click="backToLanding" title="Exit room">✕</button>
           </div>
 
           <!-- Host controls -->
@@ -435,8 +457,9 @@ function exportPDF() {
               </div>
             </div>
           </transition>
-          <div class="ticket-list">
+          <div class="ticket-list" style="overflow-anchor:none">
             <div v-if="!tickets.length" class="empty-hint"><span>No tickets yet</span><small v-if="currentUser?.is_host">Tap ＋ above</small></div>
+            <transition-group name="list-item" tag="div">
             <div
               v-for="ticket in tickets" :key="ticket.id"
               class="ticket-item"
@@ -453,6 +476,7 @@ function exportPDF() {
                 <button v-if="currentUser?.is_host && ticket.final_score===null" class="rm-btn" @click.stop="removeTicket(ticket.id)">×</button>
               </div>
             </div>
+            </transition-group>
           </div>
           <div v-if="ticketHistory.length" class="completed-section">
             <div class="section-label" style="margin-bottom:7px">Completed</div>
@@ -470,11 +494,13 @@ function exportPDF() {
             <p>{{ currentUser?.is_host ? 'Add or select a ticket to begin.' : 'Waiting for host to pick a ticket…' }}</p>
           </div>
           <template v-else>
-            <div class="ticket-banner">
+            <transition name="banner-swap" mode="out-in">
+            <div class="ticket-banner" :key="activeTicket?.id">
               <div class="ticket-banner__eyebrow">Now Estimating</div>
               <div class="ticket-banner__title">{{ activeTicket.title }}</div>
               <p v-if="activeTicket.description" class="ticket-banner__desc">{{ activeTicket.description }}</p>
             </div>
+            </transition>
 
             <!-- Poker Table: names outside oval, cards inside on felt -->
             <div class="table-scene">
@@ -553,20 +579,31 @@ function exportPDF() {
               </div>
             </transition>
 
-            <div class="action-row">
-              <button v-if="currentUser?.is_host && !revealed" class="btn btn--primary" :disabled="!voteCount" @click="revealVotes">Reveal Votes</button>
-              <button v-if="currentUser?.is_host && revealed" class="btn btn--ghost" @click="resetVoting">↺ Re-vote</button>
-            </div>
+            <!-- Floating dock: vote cards + host controls + emoji reactions -->
+            <transition name="dock-in"><div class="float-dock">
+              <!-- Host controls -->
+              <div v-if="currentUser?.is_host" class="dock-section dock-section--host">
+                <button v-if="!revealed" class="dock-reveal-btn" :disabled="!voteCount" @click="revealVotes">
+                  <span class="dock-reveal-btn__count">{{ voteCount }}/{{ voters.length }}</span>
+                  Reveal Votes
+                </button>
+                <button v-else class="dock-revote-btn" @click="resetVoting">↺ Re-vote</button>
+              </div>
 
-            <div v-if="canVote" class="card-deck">
-              <button v-for="card in FIBONACCI" :key="card" class="card" :class="{ 'card--sel': myVote===card }" @click="castVote(card)">{{ card }}</button>
-            </div>
-            <div v-else-if="currentUser?.is_spectator" class="notice">👁 Spectating</div>
+              <!-- Voting cards (voters only) -->
+              <div v-if="canVote" class="dock-section dock-cards">
+                <button v-for="card in FIBONACCI" :key="card" class="dock-card" :class="{ 'dock-card--sel': myVote===card }" @click="castVote(card)">{{ card }}</button>
+              </div>
+              <div v-else-if="currentUser?.is_spectator" class="dock-section dock-spectator">👁 Spectating</div>
 
-            <div class="emoji-bar">
-              <span class="emoji-bar__label">React</span>
-              <button v-for="e in EMOJI_LIST" :key="e" class="emoji-btn" @click="sendEmoji(e)">{{ e }}</button>
-            </div>
+              <!-- Divider -->
+              <div class="dock-divider" />
+
+              <!-- Emoji reactions -->
+              <div class="dock-section dock-emojis">
+                <button v-for="e in EMOJI_LIST" :key="e" class="dock-emoji" @click="sendEmoji(e)">{{ e }}</button>
+              </div>
+            </div></transition>
           </template>
         </main>
 
@@ -577,12 +614,14 @@ function exportPDF() {
             <span class="online-dot">{{ members.length }} online</span>
           </div>
           <div class="members-list">
+            <transition-group name="list-item" tag="div">
             <div v-for="m in members" :key="m.id" class="member-row">
               <div class="av av--xs" :style="{ background: m.color }">{{ initials(m.name) }}</div>
               <span class="member-row__name">{{ m.name }}</span>
               <span v-if="m.is_host" class="rbadge rbadge--host">host</span>
               <span v-if="m.is_spectator" class="rbadge">👁</span>
             </div>
+            </transition-group>
           </div>
           <div class="divider" />
           <div class="chat-messages" ref="chatContainer">
@@ -605,6 +644,8 @@ function exportPDF() {
         </aside>
       </div>
     </div>
+
+    </transition><!-- /screen-fade -->
 
     <!-- ══ SHARE MODAL ════════════════════════════════════════════════ -->
     <transition name="modal-fade">
@@ -700,9 +741,6 @@ function exportPDF() {
 .accent { color:var(--accent2); }
 .landing__sub { font-size:0.95rem; color:var(--muted); text-align:center; }
 .landing__actions { display:flex; gap:12px; margin-top:4px; }
-.landing__cards { display:flex; gap:10px; opacity:0.18; }
-.landing__card { width:44px; height:60px; background:var(--surface); border:1px solid var(--border2); border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:1.1rem; font-weight:700; animation:float 3s ease-in-out infinite; }
-@keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-7px)} }
 .public-rooms { width:100%; max-width:520px; }
 .public-rooms__list { display:flex; flex-direction:column; gap:7px; margin-top:8px; }
 .pub-card { display:flex; align-items:center; gap:12px; background:var(--surface); border:1px solid var(--border2); border-radius:var(--r-sm); padding:11px 15px; cursor:pointer; transition:border-color 0.15s,background 0.15s; }
@@ -773,12 +811,32 @@ function exportPDF() {
 .sync-badge { font-size:10px; color:var(--muted2); background:var(--surface2); padding:2px 8px; border-radius:999px; animation:pulse 1s ease-in-out infinite; }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 
-/* User stack: badge above exit button */
-.user-stack { display:flex; flex-direction:column; align-items:flex-end; gap:4px; }
-.me-badge { display:flex; align-items:center; gap:7px; border:1.5px solid; border-radius:999px; padding:3px 10px 3px 4px; font-size:12px; font-weight:500; }
-.me-role { background:rgba(99,102,241,0.2); color:var(--accent2); font-size:10px; padding:1px 6px; border-radius:999px; margin-left:4px; }
-.exit-btn { background:none; border:none; color:var(--muted2); cursor:pointer; font-size:11px; padding:0 4px; text-align:right; transition:color 0.15s; }
-.exit-btn:hover { color:#ef4444; }
+/* Compact single-row header user area */
+.hdr-user-row { display:flex; align-items:center; gap:6px; }
+.me-badge { display:flex; align-items:center; gap:6px; border:1.5px solid; border-radius:999px; padding:3px 10px 3px 4px; font-size:12px; font-weight:500; }
+.me-role { background:rgba(99,102,241,0.2); color:var(--accent2); font-size:10px; padding:1px 6px; border-radius:999px; margin-left:3px; }
+
+/* Token pill: compact inline, clickable to copy */
+.token-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: 6px; padding: 3px 8px 3px 7px;
+  font-size: 10px; font-family: monospace; font-weight: 700;
+  color: var(--accent2); letter-spacing: 0.04em;
+  cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.token-pill:hover { border-color: var(--accent); background: rgba(99,102,241,0.1); }
+.token-pill__copy { margin-left: 3px; font-size: 11px; color: var(--muted); font-family: sans-serif; }
+
+/* Exit pill: small X button */
+.exit-pill {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: none; border: 1px solid var(--border2);
+  color: var(--muted); font-size: 13px; line-height: 1;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s; flex-shrink: 0;
+}
+.exit-pill:hover { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.4); color: #ef4444; }
 
 .host-controls { display:flex; gap:6px; }
 .room-body { display:grid; grid-template-columns:225px 1fr 250px; flex:1; overflow:hidden; }
@@ -838,7 +896,7 @@ function exportPDF() {
 .table-scene {
   position: relative;
   width: 100%;
-  padding-bottom: 70%; /* slightly taller aspect ratio to give room for name labels */
+  padding-bottom: 44%; /* compact oval */
 }
 
 /* Name labels: positioned outside the oval using % of the scene */
@@ -966,19 +1024,9 @@ function exportPDF() {
 .accept-card--other { opacity: 0.65; }
 .accept-card--other:hover { opacity: 1; }
 
-/* ── Actions / Voting cards ── */
-.action-row { display:flex; gap:10px; justify-content:center; }
-.card-deck { display:flex; flex-wrap:wrap; gap:7px; justify-content:center; }
-.card { min-width:42px; height:58px; background:var(--surface); border:1.5px solid var(--border2); border-radius:8px; font-size:1rem; font-weight:800; color:var(--text); cursor:pointer; transition:all 0.15s; display:flex; align-items:center; justify-content:center; padding:0 8px; }
-.card:hover { transform:translateY(-4px); border-color:var(--accent); background:rgba(99,102,241,0.08); }
-.card--sel { transform:translateY(-8px); border-color:var(--accent); background:rgba(99,102,241,0.2); color:var(--accent2); box-shadow:0 0 0 3px rgba(99,102,241,0.2); }
-.notice { text-align:center; color:var(--muted); font-size:13px; }
 
-/* ── Emoji bar ── */
-.emoji-bar { display:flex; align-items:center; gap:4px; justify-content:center; flex-wrap:wrap; background:var(--surface); border:1px solid var(--border); border-radius:999px; padding:6px 14px; align-self:center; }
-.emoji-bar__label { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:0.08em; margin-right:4px; }
-.emoji-btn { background:none; border:none; cursor:pointer; font-size:1.15rem; padding:3px 4px; border-radius:6px; transition:background 0.1s,transform 0.12s; line-height:1; }
-.emoji-btn:hover { background:var(--surface2); transform:scale(1.3); }
+
+
 
 /* ── Chat ── */
 .members-list { padding:4px 10px 8px; display:flex; flex-direction:column; gap:3px; flex-shrink:0; max-height:110px; overflow-y:auto; }
@@ -1029,13 +1077,117 @@ function exportPDF() {
 .pass-member-name { flex:1; font-size:13px; font-weight:500; }
 .pass-member-action { font-size:11px; color:var(--accent2); font-weight:600; }
 
+/* ── Floating dock ── */
+.float-dock {
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: rgba(19,23,32,0.92);
+  border: 1px solid var(--border2);
+  border-radius: 999px;
+  padding: 7px 12px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04);
+  max-width: calc(100vw - 520px); /* stay clear of sidebars */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.float-dock::-webkit-scrollbar { display: none; }
+.dock-section { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+.dock-divider { width: 1px; height: 28px; background: var(--border2); margin: 0 10px; flex-shrink: 0; }
+.dock-section--host { margin-right: 4px; }
+.dock-reveal-btn {
+  display: flex; align-items: center; gap: 7px;
+  background: var(--accent); color: white; border: none; border-radius: 999px;
+  padding: 7px 16px; font-size: 13px; font-weight: 700; cursor: pointer;
+  transition: all 0.15s; white-space: nowrap;
+}
+.dock-reveal-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.dock-reveal-btn:not(:disabled):hover { background: var(--accent2); }
+.dock-reveal-btn__count { background: rgba(255,255,255,0.2); border-radius: 999px; padding: 1px 8px; font-size: 11px; }
+.dock-revote-btn {
+  background: transparent; color: var(--muted); border: 1px solid var(--border2);
+  border-radius: 999px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer;
+  transition: all 0.15s; white-space: nowrap;
+}
+.dock-revote-btn:hover { background: var(--surface2); color: var(--text); }
+.dock-cards { gap: 4px; }
+.dock-card {
+  min-width: 38px; height: 52px;
+  background: var(--surface2); border: 1.5px solid var(--border2);
+  border-radius: 8px; font-size: 0.95rem; font-weight: 800; color: var(--text);
+  cursor: pointer; transition: all 0.13s;
+  display: flex; align-items: center; justify-content: center; padding: 0 7px;
+}
+.dock-card:hover { transform: translateY(-5px); border-color: var(--accent); background: rgba(99,102,241,0.12); }
+.dock-card--sel {
+  transform: translateY(-9px); border-color: var(--accent);
+  background: rgba(99,102,241,0.25); color: var(--accent2);
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.2);
+}
+.dock-spectator { font-size: 12px; color: var(--muted); padding: 0 8px; }
+.dock-emojis { gap: 2px; }
+.dock-emoji {
+  background: none; border: none; cursor: pointer; font-size: 1.2rem;
+  padding: 4px 5px; border-radius: 8px; line-height: 1;
+  transition: background 0.1s, transform 0.12s;
+}
+.dock-emoji:hover { background: var(--surface2); transform: scale(1.35) translateY(-2px); }
+
+.field-hint { font-size:11px; color:var(--muted); line-height:1.4; }
+
+
+
 /* ── Transitions ── */
-.slide-down-enter-active,.slide-down-leave-active { transition:all 0.2s ease; }
-.slide-down-enter-from,.slide-down-leave-to { opacity:0; transform:translateY(-8px); }
-.reveal-enter-active { transition:all 0.35s ease; }
-.reveal-enter-from { opacity:0; transform:translateY(10px); }
-.modal-fade-enter-active,.modal-fade-leave-active { transition:opacity 0.2s ease; }
+
+/* Screen-level page transitions */
+.screen-fade-enter-active { transition: opacity 0.22s ease, transform 0.22s ease; }
+.screen-fade-leave-active { transition: opacity 0.18s ease, transform 0.18s ease; }
+.screen-fade-enter-from { opacity: 0; transform: translateY(10px); }
+.screen-fade-leave-to   { opacity: 0; transform: translateY(-6px); }
+
+/* Slide-down (add ticket form, pass modal list) */
+.slide-down-enter-active,.slide-down-leave-active { transition:all 0.22s cubic-bezier(0.4,0,0.2,1); }
+.slide-down-enter-from,.slide-down-leave-to { opacity:0; transform:translateY(-10px); max-height:0; }
+
+/* Results reveal */
+.reveal-enter-active { transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.34,1.56,0.64,1); }
+.reveal-leave-active { transition: opacity 0.2s ease; }
+.reveal-enter-from { opacity:0; transform:translateY(16px) scale(0.97); }
+.reveal-leave-to   { opacity:0; }
+
+/* Modal */
+.modal-fade-enter-active { transition: opacity 0.2s ease; }
+.modal-fade-leave-active { transition: opacity 0.15s ease; }
 .modal-fade-enter-from,.modal-fade-leave-to { opacity:0; }
+.modal-fade-enter-active .modal { transition: transform 0.25s cubic-bezier(0.34,1.56,0.64,1); }
+.modal-fade-enter-from .modal { transform: scale(0.93) translateY(8px); }
+
+/* Fade up (public rooms, etc) */
 .fade-up-enter-active { transition:all 0.4s ease; }
 .fade-up-enter-from { opacity:0; transform:translateY(8px); }
+
+/* List items (tickets, members) */
+.list-item-enter-active { transition: all 0.25s cubic-bezier(0.4,0,0.2,1); }
+.list-item-leave-active { transition: all 0.18s ease; }
+.list-item-enter-from { opacity:0; transform:translateX(-8px); }
+.list-item-leave-to   { opacity:0; transform:translateX(8px); height:0; padding:0; margin:0; }
+.list-item-move       { transition: transform 0.25s ease; }
+
+/* Ticket banner swap */
+.banner-swap-enter-active { transition: all 0.3s cubic-bezier(0.4,0,0.2,1); }
+.banner-swap-leave-active { transition: all 0.2s ease; }
+.banner-swap-enter-from { opacity:0; transform:translateY(6px); }
+.banner-swap-leave-to   { opacity:0; transform:translateY(-4px); }
+
+/* Dock entrance */
+.dock-in-enter-active { transition: all 0.35s cubic-bezier(0.34,1.56,0.64,1); }
+.dock-in-leave-active { transition: all 0.2s ease; }
+.dock-in-enter-from { opacity:0; transform:translateX(-50%) translateY(20px); }
+.dock-in-leave-to   { opacity:0; transform:translateX(-50%) translateY(12px); }
 </style>
