@@ -43,6 +43,7 @@ Built and maintained by [@surelle-ha](https://github.com/surelle-ha) as part of 
 - Chore: Rename GitHub repository name.
 - Feature: Add re-score button on ticket list.
 - Chore: Change export button icon.
+- Feature: Dockerfile for self-host.
 
 ---
 
