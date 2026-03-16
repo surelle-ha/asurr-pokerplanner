@@ -1,0 +1,35 @@
+/* assets/css/sp-tokens.css
+   Design tokens for Asurr SprintPoint.
+   Import this in nuxt.config.ts via css: ['~/assets/css/sp-tokens.css']
+*/
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;0,9..40,900;1,9..40,400&family=DM+Mono:wght@400;500&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #0b0d12;
+  --surface: #131720;
+  --surface2:#1a1f2e;
+  --border:  rgba(255,255,255,0.06);
+  --border2: rgba(255,255,255,0.11);
+  --accent:  #6366f1;
+  --accent2: #818cf8;
+  --text:    #e2e5f0;
+  --muted:   #787e9a;
+  --muted2:  #454960;
+  --success: #10b981;
+  --felt:    #1b4d35;
+  --felt2:   #143d29;
+  --felt-rim:#0e2c1d;
+  --r:       12px;
+  --r-sm:    8px;
+  --font-main: 'DM Sans', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'DM Mono', 'Fira Code', monospace;
+}
+
+body {
+  font-family: var(--font-main);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}

@@ -20,23 +20,28 @@ export default defineNuxtConfig({
 
   modules: ['@nuxtjs/supabase'],
 
+  css: [
+    '~/assets/css/sp-tokens.css',
+    '~/assets/css/sp-base.css'
+  ],
+
   supabase: {
-  url: process.env.SUPABASE_URL,
-  key: process.env.SUPABASE_ANON_KEY,
-  redirect: false,
-  redirectOptions: {
-    login: '/',
-    callback: '/confirm',
-    exclude: ['/*'],
+    url: process.env.SUPABASE_URL,
+    key: process.env.SUPABASE_ANON_KEY,
+    redirect: false,
+    redirectOptions: {
+      login: '/',
+      callback: '/confirm',
+      exclude: ['/*'],
+    },
   },
-},
 
   runtimeConfig: {
-  supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
-  public: {
-    supabaseUrl: process.env.SUPABASE_URL,
-    supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
+    supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    public: {
+      supabaseUrl: process.env.SUPABASE_URL,
+      supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
+    },
   },
-},
 
 })
