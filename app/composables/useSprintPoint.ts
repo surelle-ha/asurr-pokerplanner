@@ -10,6 +10,7 @@
 
 import { ref, computed, onUnmounted } from 'vue'
 import { useSupabaseRealtime } from './useSupabaseRealtime'
+import { useSupabase } from './supabase.client'
 import type { Database, Room, Member, Ticket, Vote, ChatMessage } from '~/types/sprintpoint'
 
 const COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ef4444', '#14b8a6']
@@ -55,7 +56,7 @@ export function generateDefaultToken(): string {
 }
 
 export function useSprintPoint() {
-  const supabase = useSupabaseClient<Database>()
+  const supabase = useSupabase()
   const { subscribe, unsubscribe } = useSupabaseRealtime()
 
   const room         = ref<Room | null>(null)
@@ -115,6 +116,47 @@ export function useSprintPoint() {
     return !revealed.value
   })
 
+  // ─── Leaderboard ─────────────────────────────────────────────────────────────
+  // Computes per-member accuracy (votes that matched the final score) and
+  // streak (best consecutive run of accurate estimates) from completed tickets.
+  const leaderboard = computed(() => {
+    if (!room.value?.enable_leaderboard) return []
+    const completedTickets = tickets.value.filter(t => t.final_score !== null)
+    if (!completedTickets.length) return []
+
+    const stats: Record<string, {
+      memberId: string; name: string; color: string
+      voted: number; accurate: number; bestStreak: number; currentStreak: number
+    }> = {}
+
+    // Seed entries for all active members
+    for (const m of members.value) {
+      stats[m.id] = { memberId: m.id, name: m.name, color: m.color, voted: 0, accurate: 0, bestStreak: 0, currentStreak: 0 }
+    }
+
+    // Walk completed tickets in order; build accuracy per member
+    for (const ticket of completedTickets.sort((a, b) => a.order - b.order)) {
+      const ticketVotes = votes.value.filter(v => v.ticket_id === ticket.id)
+      for (const v of ticketVotes) {
+        if (!stats[v.member_id]) continue
+        const s = stats[v.member_id]
+        s.voted++
+        const hit = String(v.value) === String(ticket.final_score)
+        if (hit) {
+          s.accurate++
+          s.currentStreak++
+          if (s.currentStreak > s.bestStreak) s.bestStreak = s.currentStreak
+        } else {
+          s.currentStreak = 0
+        }
+      }
+    }
+
+    return Object.values(stats)
+      .filter(s => s.voted > 0)
+      .sort((a, b) => b.accurate - a.accurate || b.bestStreak - a.bestStreak)
+  })
+
   // ─── Realtime handler ────────────────────────────────────────────────────────
   function handleRealtimeEvent(event: 'INSERT' | 'UPDATE' | 'DELETE', table: string, row: any) {
     switch (table) {
@@ -130,10 +172,20 @@ export function useSprintPoint() {
           }
         }
         if (event === 'UPDATE') {
+          // If OUR OWN row was set inactive, we've been kicked — force-eject
+          if (row.id === currentUser.value?.id && row.is_active === false) {
+            onKicked.value?.()
+            break
+          }
           if (members.value.some(m => m.id === row.id)) {
-            members.value = members.value.map(m => m.id === row.id ? row : m)
-          } else {
-            // Row exists in DB but not locally (e.g. was inactive when we loaded)
+            // If the updated row is now inactive, remove it from the local list
+            if (row.is_active === false) {
+              members.value = members.value.filter(m => m.id !== row.id)
+            } else {
+              members.value = members.value.map(m => m.id === row.id ? row : m)
+            }
+          } else if (row.is_active !== false) {
+            // Row rejoined after being inactive
             members.value = [...members.value, row]
           }
           if (currentUser.value?.id === row.id) currentUser.value = row
@@ -145,15 +197,27 @@ export function useSprintPoint() {
         break
 
       case 'tickets':
-        if (event === 'INSERT') tickets.value = [...tickets.value, row].sort((a, b) => a.order - b.order)
+        if (event === 'INSERT') {
+          if (!tickets.value.some(t => t.id === row.id))
+            tickets.value = [...tickets.value, row].sort((a, b) => a.order - b.order)
+        }
         if (event === 'UPDATE') tickets.value = tickets.value.map(t => t.id === row.id ? row : t)
-        if (event === 'DELETE') tickets.value = tickets.value.filter(t => t.id !== row.id)
+        if (event === 'DELETE' && row.id) {
+          // row.id may be undefined if REPLICA IDENTITY FULL is not set —
+          // in that case the optimistic delete in removeTicket() already handled it
+          tickets.value = tickets.value.filter(t => t.id !== row.id)
+        }
         break
 
       case 'votes':
-        if (event === 'INSERT') votes.value = [...votes.value, row]
+        if (event === 'INSERT') {
+          // Replace optimistic tmp entry if present, else append
+          const tmp = votes.value.find(v => v.member_id === row.member_id && v.ticket_id === row.ticket_id && String(v.id).startsWith('tmp-'))
+          if (tmp) votes.value = votes.value.map(v => v.id === tmp.id ? row : v)
+          else if (!votes.value.some(v => v.id === row.id)) votes.value = [...votes.value, row]
+        }
         if (event === 'UPDATE') votes.value = votes.value.map(v => v.id === row.id ? row : v)
-        if (event === 'DELETE') votes.value = votes.value.filter(v => v.id !== row.id)
+        if (event === 'DELETE' && row.id) votes.value = votes.value.filter(v => v.id !== row.id)
         break
 
       case 'chat_messages':
@@ -245,6 +309,8 @@ export function useSprintPoint() {
   }
 
   const onEmojiReceived = ref<((emoji: string) => void) | null>(null)
+  // Called when the current user's own is_active is set to false (kicked)
+  const onKicked = ref<(() => void) | null>(null)
 
   async function broadcastEmoji(emoji: string) {
     if (!room.value || !currentUser.value) return
@@ -265,7 +331,7 @@ export function useSprintPoint() {
 
   async function createRoom(opts: {
     name: string; description?: string; hostName: string
-    hostCanVote: boolean; allowSpectators: boolean; pin?: string; token?: string
+    hostCanVote: boolean; allowSpectators: boolean; pin?: string; token?: string; enableLeaderboard?: boolean
   }) {
     const userId = getGlobalUserId()
     const token  = (opts.token?.trim() || generateDefaultToken()).toLowerCase()
@@ -273,7 +339,7 @@ export function useSprintPoint() {
     try {
       const { data: newRoom, error: roomErr } = await supabase
         .from('rooms')
-        .insert({ name: opts.name, description: opts.description ?? null, host_id: userId, host_can_vote: opts.hostCanVote, allow_spectators: opts.allowSpectators, locked: false, revealed: false, active_ticket_id: null, pin: opts.pin || null })
+        .insert({ name: opts.name, description: opts.description ?? null, host_id: userId, host_can_vote: opts.hostCanVote, allow_spectators: opts.allowSpectators, locked: false, revealed: false, active_ticket_id: null, pin: opts.pin || null, enable_leaderboard: opts.enableLeaderboard ?? false })
         .select().single()
       if (roomErr) throw roomErr
 
@@ -405,6 +471,17 @@ export function useSprintPoint() {
     await sysMsg(room.value.id, `${target.name} is now the host.`)
   }
 
+  async function kickMember(memberId: string) {
+    if (!room.value || !currentUser.value?.is_host) return
+    const target = members.value.find(m => m.id === memberId)
+    if (!target || target.id === currentUser.value.id) return
+    // Mark inactive — same as leaveRoom for that member
+    await supabase.from('members')
+      .update({ is_active: false, last_seen: new Date().toISOString() })
+      .eq('id', memberId)
+    await sysMsg(room.value.id, `${target.name} was removed from the room.`)
+  }
+
   async function toggleLock() {
     if (!room.value) return
     const newLocked = !room.value.locked
@@ -426,8 +503,20 @@ export function useSprintPoint() {
 
   async function removeTicket(ticketId: string) {
     if (!room.value) return
+
+    // Optimistic update — remove immediately from local state so the UI
+    // responds instantly without waiting for Realtime (which requires
+    // REPLICA IDENTITY FULL to carry the id in DELETE payloads).
+    tickets.value = tickets.value.filter(t => t.id !== ticketId)
+    votes.value   = votes.value.filter(v => v.ticket_id !== ticketId)
+
+    // Clear active ticket if it was the one deleted
+    const wasActive = room.value.active_ticket_id === ticketId
+    if (wasActive) room.value = { ...room.value, active_ticket_id: null, revealed: false }
+
+    // Persist to DB — Realtime will propagate to other users
     await supabase.from('tickets').delete().eq('id', ticketId)
-    if (room.value.active_ticket_id === ticketId)
+    if (wasActive)
       await supabase.from('rooms').update({ active_ticket_id: null, revealed: false }).eq('id', room.value.id)
   }
 
@@ -442,11 +531,32 @@ export function useSprintPoint() {
   async function castVote(value: string) {
     if (!canVote.value || !currentUser.value || !room.value || !activeTicketId.value) return
     const existing = votes.value.find(v => v.ticket_id === activeTicketId.value && v.member_id === currentUser.value!.id)
-    if (existing && existing.value === value) await supabase.from('votes').delete().eq('id', existing.id)
-    else await supabase.from('votes').upsert(
-      { room_id: room.value.id, ticket_id: activeTicketId.value, member_id: currentUser.value.id, value },
-      { onConflict: 'ticket_id,member_id' }
-    )
+    if (existing && existing.value === value) {
+      // Optimistic retract
+      votes.value = votes.value.filter(v => v.id !== existing.id)
+      await supabase.from('votes').delete().eq('id', existing.id)
+    } else {
+      // Optimistic upsert — add/replace locally then sync to DB
+      const optimistic = {
+        id: existing?.id ?? `tmp-${Date.now()}`,
+        room_id: room.value.id,
+        ticket_id: activeTicketId.value,
+        member_id: currentUser.value.id,
+        value,
+        created_at: new Date().toISOString(),
+      }
+      if (existing) {
+        votes.value = votes.value.map(v => v.id === existing.id ? optimistic : v)
+      } else {
+        votes.value = [...votes.value, optimistic]
+      }
+      const { data: saved } = await supabase.from('votes').upsert(
+        { room_id: room.value.id, ticket_id: activeTicketId.value, member_id: currentUser.value.id, value },
+        { onConflict: 'ticket_id,member_id' }
+      ).select().single()
+      // Replace the optimistic entry with the real DB row (has correct id)
+      if (saved) votes.value = votes.value.map(v => v.id === optimistic.id ? saved : v)
+    }
   }
 
   async function revealVotes() {
@@ -530,12 +640,13 @@ export function useSprintPoint() {
 
   return {
     room, members: activeMembers, tickets, votes, chatMessages, currentUser,
-    loading, error, myToken, onEmojiReceived, onlineMembers,
+    loading, error, myToken, onEmojiReceived, onKicked, onlineMembers,
     isLocked, revealed, activeTicketId, activeTicket, voters,
     voteMap, myVote, voteCount, voteStats, canVote,
     generateDefaultToken, resumeSession,
     loadRoom, createRoom, joinRoom, toggleLock, addTicket, removeTicket,
     setActiveTicket, castVote, revealVotes, resetVoting, acceptScore,
-    sendChat, leaveRoom, passHostTo, broadcastEmoji,
+    sendChat, leaveRoom, passHostTo, kickMember, broadcastEmoji,
+    leaderboard,
   }
 }

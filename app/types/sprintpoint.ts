@@ -15,6 +15,7 @@ export interface Room {
   active_ticket_id: string | null
   revealed: boolean
   pin: string | null          // added in migration 003
+  enable_leaderboard: boolean  // added in migration 008
   created_at: string
 }
 

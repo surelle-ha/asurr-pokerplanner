@@ -1,6 +1,10 @@
 <script setup>
 import { ref, computed, reactive, watch, nextTick, onMounted } from 'vue'
 
+// Disable SSR for this page — it uses localStorage, Supabase Realtime,
+// and callback refs that must only run in the browser.
+definePageMeta({ ssr: false })
+
 const FIBONACCI = ['?', '0', '1', '2', '3', '5', '8', '13', '21', '34', '55', '☕']
 const EMOJI_LIST = ['🔥', '💡', '🤔', '😅', '🎉', '👀', '💀', '🚀', '❤️', '👏']
 function initials(n) { return (n || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() }
@@ -17,13 +21,17 @@ const showShareModal  = ref(false)
 const showPassModal   = ref(false)   // pass host modal
 const showExportMenu  = ref(false)   // export dropdown
 const ticketsOpen     = ref(true)    // ticket sidebar collapsed state
+const showAddModal    = ref(false)   // add ticket modal
+const showKickModal   = ref(false)   // kick user modal
+const showLeaderboard = ref(false)   // leaderboard modal
+const kickTarget      = ref(null)    // member to kick
 const emojiFlashes    = ref([])
 const qrContainer     = ref(null)
 const copied          = ref(false)
 const tokenCopied     = ref(false)
 
 // Forms
-const createForm   = reactive({ roomName: '', description: '', hostName: '', hostCanVote: true, allowSpectators: true, pin: '', token: '' })
+const createForm   = reactive({ roomName: '', description: '', hostName: '', hostCanVote: true, allowSpectators: true, pin: '', token: '', enableLeaderboard: false })
 const createErrors = reactive({ roomName: false, hostName: false })
 const joinForm     = reactive({ userName: '', isSpectator: false, roomCode: '', pin: '', token: '' })
 const joinErrors   = reactive({ userName: false, roomCode: false, pin: false, token: false })
@@ -46,6 +54,8 @@ const canVote        = sp.canVote
 const currentUser    = sp.currentUser
 const myToken        = sp.myToken
 const onlineMembers  = sp.onlineMembers
+
+
 
 // ─── Computed ─────────────────────────────────────────────────────────────────
 const ticketHistory = computed(() => tickets.value.filter(t => t.final_score !== null))
@@ -75,7 +85,7 @@ watch(() => joinForm.roomCode, async (val) => {
   const code = val.trim()
   if (!code) { joinRoomPreview.value = null; return }
   previewTimer = setTimeout(async () => {
-    const { data } = await useSupabaseClient().from('rooms').select('*').eq('id', code).maybeSingle()
+    const { data } = await useSupabase().from('rooms').select('*').eq('id', code).maybeSingle()
     joinRoomPreview.value = data ?? null
   }, 300)
 })
@@ -106,9 +116,20 @@ function spawnFallers() {
 onMounted(async () => {
   spawnFallers()
 
+  // Register callbacks here — safe after hydration, never runs on SSR
+  sp.onEmojiReceived.value = (emoji) => { triggerEmojiFlash(emoji) }
+
+  sp.onKicked.value = () => {
+    sp.leaveRoom()
+    screen.value = 'landing'
+    showShareModal.value = false
+    showAddModal.value   = false
+    showPassModal.value  = false
+    showKickModal.value  = false
+    alert('You have been removed from the room by the host.')
+  }
+
   // 1. Try to resume an existing session (handles page refresh)
-  //    resumeSession returns true if the user had an active room and we
-  //    successfully reconnected — skip the landing screen entirely.
   const resumed = await sp.resumeSession()
   if (resumed) { screen.value = 'room'; return }
 
@@ -131,6 +152,7 @@ async function createRoom() {
       allowSpectators: createForm.allowSpectators,
       pin: createForm.pin.trim() || undefined,
       token: createForm.token.trim() || undefined,
+      enableLeaderboard: createForm.enableLeaderboard,
     })
     screen.value = 'room'
   } catch (e) { console.error(e) }
@@ -156,19 +178,34 @@ async function revealVotes()       { await sp.revealVotes() }
 async function resetVoting()       { await sp.resetVoting() }
 async function castVote(card)      { await sp.castVote(card) }
 async function acceptScore(score)  { await sp.acceptScore(score); showExportMenu.value = false }
-async function removeTicket(id)    { await sp.removeTicket(id) }
+async function removeTicket(id) {
+  try { await sp.removeTicket(id) }
+  catch (e) { console.error('[removeTicket]', e); alert('Could not delete ticket: ' + (e.message ?? e)) }
+}
 async function setActiveTicket(id) { await sp.setActiveTicket(id) }
 
 async function addTicket() {
   if (!ticketInput.value.title.trim()) return
   await sp.addTicket(ticketInput.value.title.trim(), ticketInput.value.description.trim())
   ticketInput.value = { title: '', description: '' }
+  showAddModal.value = false
   showAddTicket.value = false
 }
 
 async function passHostTo(memberId) {
   await sp.passHostTo(memberId)
   showPassModal.value = false
+}
+
+async function kickMember(memberId) {
+  kickTarget.value = null
+  showKickModal.value = false
+  await sp.kickMember(memberId)
+}
+
+function openKickConfirm(member) {
+  kickTarget.value = member
+  showKickModal.value = true
 }
 
 async function sendChat() {
@@ -186,7 +223,7 @@ async function backToLanding() {
   await sp.leaveRoom()
   screen.value = 'landing'
   showShareModal.value = false; showAddTicket.value = false; showPassModal.value = false
-  Object.assign(createForm, { roomName: '', description: '', hostName: '', hostCanVote: true, allowSpectators: true, pin: '', token: '' })
+  Object.assign(createForm, { roomName: '', description: '', hostName: '', hostCanVote: true, allowSpectators: true, pin: '', token: '', enableLeaderboard: false })
   Object.assign(joinForm, { userName: '', isSpectator: false, roomCode: '', pin: '', token: '' })
 }
 
@@ -206,8 +243,7 @@ async function sendEmoji(emoji) {
   await sp.broadcastEmoji(emoji)     // broadcast to all other users via Realtime
 }
 
-// Register the callback so the composable can trigger flashes for incoming emojis
-sp.onEmojiReceived.value = (emoji) => { triggerEmojiFlash(emoji) }
+
 
 // ─── Share & QR ───────────────────────────────────────────────────────────────
 async function openShare() { showShareModal.value = true; await nextTick(); renderQR() }
@@ -460,6 +496,13 @@ function exportPDF() {
             <span class="toggle-label"><strong>Allow spectators</strong><small>Members can join watch-only</small></span>
             <div class="toggle-wrap"><input type="checkbox" v-model="createForm.allowSpectators" /><span class="toggle-track" /></div>
           </label>
+          <label class="toggle-row">
+            <span class="toggle-label">
+              <strong>Enable Leaderboard</strong>
+              <small>Track accuracy &amp; streaks — who estimates best?</small>
+            </span>
+            <div class="toggle-wrap"><input type="checkbox" v-model="createForm.enableLeaderboard" /><span class="toggle-track" /></div>
+          </label>
         </div>
         <div v-if="sp.error.value" class="field-err err-box">{{ sp.error.value }}</div>
         <button class="btn btn--primary btn--full" :disabled="sp.loading.value" @click="createRoom">
@@ -546,7 +589,9 @@ function exportPDF() {
           <!-- Host controls -->
           <div v-if="currentUser?.is_host" class="host-controls">
             <button class="btn btn--ghost btn--sm" @click="toggleLock">{{ isLocked ? '🔓 Unlock' : '🔒 Lock' }}</button>
-            <button class="btn btn--ghost btn--sm" @click="showPassModal=true" title="Pass host role to another member">👑 Pass Host</button>
+            <button class="btn btn--ghost btn--sm" @click="showPassModal=true" title="Pass host role">👑 Pass</button>
+            <button class="btn btn--ghost btn--sm" @click="showKickModal=true" title="Kick a member">🥾 Kick</button>
+            <button v-if="room?.enable_leaderboard" class="btn btn--ghost btn--sm" @click="showLeaderboard=true" title="View leaderboard">🏆 Board</button>
           </div>
 
           <button class="btn btn--accent btn--sm" @click="openShare">⬆ Share</button>
@@ -577,19 +622,9 @@ function exportPDF() {
                   <button @click="exportPDF">Export PDF</button>
                 </div>
               </div>
-              <button v-if="currentUser?.is_host" class="icon-btn" @click="showAddTicket=!showAddTicket">＋</button>
+              <button v-if="currentUser?.is_host" class="icon-btn" @click="showAddModal=true" title="Add ticket">＋</button>
             </div>
           </div>
-          <transition name="slide-down">
-            <div v-if="ticketsOpen && showAddTicket" class="add-ticket-form">
-              <input v-model="ticketInput.title" placeholder="Title (e.g. AUTH-123)" @keyup.enter="addTicket" />
-              <textarea v-model="ticketInput.description" placeholder="Description (optional)" rows="2" />
-              <div class="add-ticket-actions">
-                <button class="btn btn--ghost btn--sm" @click="showAddTicket=false">Cancel</button>
-                <button class="btn btn--primary btn--sm" @click="addTicket">Add</button>
-              </div>
-            </div>
-          </transition>
           <div v-show="ticketsOpen" class="ticket-list" style="overflow-anchor:none">
             <div v-if="!tickets.length" class="empty-hint"><span>No tickets yet</span><small v-if="currentUser?.is_host">Tap ＋ above</small></div>
             <transition-group name="list-item" tag="div">
@@ -758,6 +793,12 @@ function exportPDF() {
               <span v-if="m.is_host" class="rbadge rbadge--host">host</span>
               <span v-if="m.is_spectator" class="rbadge">👁</span>
               <span v-if="!onlineMembers.find(o => o.id === m.id)" class="rbadge rbadge--offline" title="Away">●</span>
+              <button
+                v-if="currentUser?.is_host && m.id !== currentUser?.id"
+                class="kick-btn"
+                title="Kick member"
+                @click.stop="openKickConfirm(m)"
+              >✕</button>
             </div>
             </transition-group>
           </div>
@@ -784,6 +825,121 @@ function exportPDF() {
     </div>
 
     </transition><!-- /screen-fade -->
+
+    <!-- ══ ADD TICKET MODAL ═════════════════════════════════════════════ -->
+    <transition name="modal-fade">
+      <div v-if="showAddModal" class="modal-backdrop" @click.self="showAddModal=false">
+        <div class="modal">
+          <div class="modal-head">
+            <span class="modal-title">＋ Add Ticket</span>
+            <button class="icon-btn" @click="showAddModal=false">✕</button>
+          </div>
+          <div class="field">
+            <label>Title *</label>
+            <input
+              v-model="ticketInput.title"
+              placeholder="e.g. AUTH-123 — Login flow"
+              class="modal-input"
+              @keyup.enter="addTicket"
+              autofocus
+            />
+          </div>
+          <div class="field">
+            <label>Description <span class="optional">(optional)</span></label>
+            <textarea
+              v-model="ticketInput.description"
+              placeholder="What needs estimating?"
+              rows="3"
+              class="modal-input"
+            />
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn--ghost" @click="showAddModal=false">Cancel</button>
+            <button class="btn btn--primary" :disabled="!ticketInput.title.trim()" @click="addTicket">Add Ticket</button>
+          </div>
+        </div>
+      </div>
+    </transition>
+
+    <!-- ══ KICK MODAL ════════════════════════════════════════════════════ -->
+    <transition name="modal-fade">
+      <div v-if="showKickModal" class="modal-backdrop" @click.self="showKickModal=false">
+        <div class="modal">
+          <div class="modal-head">
+            <span class="modal-title">🥾 Kick Member</span>
+            <button class="icon-btn" @click="showKickModal=false; kickTarget=null">✕</button>
+          </div>
+          <template v-if="kickTarget">
+            <p class="pass-hint">
+              Remove <strong>{{ kickTarget.name }}</strong> from the room?
+              They can rejoin using their token if you allow it.
+            </p>
+            <div class="modal-actions">
+              <button class="btn btn--ghost" @click="showKickModal=false; kickTarget=null">Cancel</button>
+              <button class="btn btn--danger" @click="kickMember(kickTarget.id)">Kick {{ kickTarget.name }}</button>
+            </div>
+          </template>
+          <template v-else>
+            <p class="pass-hint">Select a member to remove from the room.</p>
+            <div class="pass-member-list">
+              <div
+                v-for="m in members.filter(m => m.id !== currentUser?.id)"
+                :key="m.id"
+                class="pass-member-row"
+                @click="openKickConfirm(m)"
+              >
+                <div class="av av--xs" :style="{ background: m.color }">{{ initials(m.name) }}</div>
+                <span class="pass-member-name">{{ m.name }}</span>
+                <span v-if="m.is_spectator" class="rbadge">👁</span>
+                <span class="pass-member-action" style="color:#ef4444">Kick →</span>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </transition>
+
+    <!-- ══ LEADERBOARD MODAL ═════════════════════════════════════════════ -->
+    <transition name="modal-fade">
+      <div v-if="showLeaderboard && room?.enable_leaderboard" class="modal-backdrop" @click.self="showLeaderboard=false">
+        <div class="modal modal--wide">
+          <div class="modal-head">
+            <span class="modal-title">🏆 Leaderboard</span>
+            <button class="icon-btn" @click="showLeaderboard=false">✕</button>
+          </div>
+          <div class="lb-table">
+            <div class="lb-head">
+              <span class="lb-col lb-col--rank">#</span>
+              <span class="lb-col lb-col--name">Member</span>
+              <span class="lb-col lb-col--num" title="Votes that matched final score">✓ Accurate</span>
+              <span class="lb-col lb-col--num" title="Best consecutive accurate estimates">🔥 Streak</span>
+              <span class="lb-col lb-col--num" title="Total votes cast">Voted</span>
+            </div>
+            <div
+              v-for="(row, i) in sp.leaderboard.value"
+              :key="row.memberId"
+              class="lb-row"
+              :class="{ 'lb-row--me': row.memberId === currentUser?.id, 'lb-row--top': i === 0 }"
+            >
+              <span class="lb-col lb-col--rank">{{ i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i+1 }}</span>
+              <span class="lb-col lb-col--name">
+                <div class="av av--xs" :style="{ background: row.color }">{{ initials(row.name) }}</div>
+                {{ row.name }}<span v-if="row.memberId===currentUser?.id" class="lb-you"> (you)</span>
+              </span>
+              <span class="lb-col lb-col--num">{{ row.accurate }}<small>/{{ row.voted }}</small></span>
+              <span class="lb-col lb-col--num lb-streak" :class="{ 'lb-streak--hot': row.currentStreak >= 3 }">
+                {{ row.currentStreak >= 3 ? '🔥' : '' }}{{ row.bestStreak }}
+              </span>
+              <span class="lb-col lb-col--num">{{ row.voted }}</span>
+            </div>
+            <div v-if="!sp.leaderboard.value?.length" class="empty-hint" style="padding:20px">
+              No votes cast yet.
+            </div>
+          </div>
+          <p class="lb-note">Accuracy = your vote matched the accepted final score. Streak = best consecutive run.</p>
+        </div>
+      </div>
+    </transition>
 
     <!-- ══ SHARE MODAL ════════════════════════════════════════════════ -->
     <transition name="modal-fade">
@@ -1400,6 +1556,59 @@ function exportPDF() {
 .field-hint { font-size:11px; color:var(--muted); line-height:1.4; }
 
 
+
+.kick-btn {
+  background: none; border: none; color: transparent; cursor: pointer;
+  font-size: 12px; padding: 1px 4px; border-radius: 4px;
+  transition: color 0.15s, background 0.15s; line-height: 1; flex-shrink: 0;
+}
+.member-row:hover .kick-btn { color: var(--muted2); }
+.kick-btn:hover { color: #ef4444 !important; background: rgba(239,68,68,0.1); }
+
+.btn--danger {
+  background: rgba(239,68,68,0.15); color: #ef4444;
+  border: 1px solid rgba(239,68,68,0.35);
+}
+.btn--danger:hover { background: rgba(239,68,68,0.28); border-color: #ef4444; }
+
+.modal-input {
+  width: 100%; background: var(--bg); border: 1px solid var(--border2);
+  border-radius: var(--r-sm); color: var(--text); font-size: 14px;
+  padding: 9px 12px; outline: none; font-family: inherit;
+  transition: border-color 0.15s; resize: vertical;
+}
+.modal-input:focus { border-color: var(--accent); }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+
+.modal--wide { width: 460px; max-width: calc(100vw - 32px); }
+
+/* ── Leaderboard ── */
+.lb-table { display: flex; flex-direction: column; gap: 2px; }
+.lb-head {
+  display: grid; grid-template-columns: 36px 1fr 80px 72px 52px;
+  padding: 6px 10px; gap: 8px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.07em; color: var(--muted);
+}
+.lb-row {
+  display: grid; grid-template-columns: 36px 1fr 80px 72px 52px;
+  align-items: center; padding: 9px 10px; gap: 8px;
+  background: var(--surface2); border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  transition: border-color 0.15s;
+  font-size: 13px;
+}
+.lb-row:hover { border-color: var(--border2); }
+.lb-row--me { border-color: rgba(99,102,241,0.3); background: rgba(99,102,241,0.07); }
+.lb-row--top { background: rgba(251,191,36,0.07); border-color: rgba(251,191,36,0.25); }
+.lb-col { display: flex; align-items: center; gap: 5px; }
+.lb-col--rank { font-size: 15px; justify-content: center; }
+.lb-col--num { justify-content: center; font-weight: 700; }
+.lb-col--num small { font-weight: 400; color: var(--muted); font-size: 10px; }
+.lb-streak { font-weight: 700; color: var(--text); }
+.lb-streak--hot { color: #f97316; }
+.lb-you { font-size: 10px; color: var(--muted); }
+.lb-note { font-size: 10px; color: var(--muted2); text-align: center; line-height: 1.5; }
 
 /* ── Transitions ── */
 

@@ -63,14 +63,14 @@ Built and maintained by [@surelle-ha](https://github.com/surelle-ha) as part of 
 - [ ] Ticket Component: Add re-score button on ticket list.
 - [ ] Ticket Component: Add URL Field.
 - [x] Ticket Component: Change Export Icon.
-- [ ] Ticket Component: Delete ticket function not working.
-- [ ] Ticket Component: Ticket Add Modal. 
+- [x] Ticket Component: Delete ticket function not working.
+- [x] Ticket Component: Ticket Add Modal. 
 - [ ] Room Control: Invite AI Agent: `Ollama`
-- [ ] Room Control: Add Kick User. 
+- [x] Room Control: Add Kick User. 
 - [ ] Room Control: Delete or Purge Room
 - [ ] Room Creation Option: Enable Timer
 - [ ] Room Creation Option: `Terms & Condition` Checkbox.
-- [ ] Room Creation Option: Enable Leaderboard - Estimation accuracy score, Streak for correct estimates
+- [x] Room Creation Option: Enable Leaderboard - Estimation accuracy score, Streak for correct estimates
 - [ ] Room Creation Option: Deck Type: Standard Fibonacci.
 - [ ] Room Creation Option: Deck Type: Modified Fibonacci.
 - [ ] Room Creation Option: Deck Type: T-Shirt.

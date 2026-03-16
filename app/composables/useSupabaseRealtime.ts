@@ -4,13 +4,14 @@
 // Used internally by useSprintPoint — you don't call this directly.
 
 import type { RealtimeChannel } from '@supabase/supabase-js'
+import { useSupabase } from './supabase.client'
 import type { Database } from '~/types/sprintpoint'
 
 type TableName = keyof Database['public']['Tables']
 type ChangeCallback = (event: 'INSERT' | 'UPDATE' | 'DELETE', table: TableName, row: any, oldRow: any) => void
 
 export function useSupabaseRealtime() {
-  const supabase = useSupabaseClient<Database>()
+  const supabase = useSupabase()
   let channel: RealtimeChannel | null = null
 
   /**
@@ -29,13 +30,16 @@ export function useSupabaseRealtime() {
         (payload) => onEvent(payload.eventType as any, 'rooms', payload.new, payload.old))
       // members
       .on('postgres_changes', { event: '*', schema: 'public', table: 'members', filter: `room_id=eq.${roomId}` },
-        (payload) => onEvent(payload.eventType as any, 'members', payload.new, payload.old))
+        (payload) => onEvent(payload.eventType as any, 'members',
+          payload.eventType === 'DELETE' ? payload.old : payload.new, payload.old))
       // tickets
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets', filter: `room_id=eq.${roomId}` },
-        (payload) => onEvent(payload.eventType as any, 'tickets', payload.new, payload.old))
+        (payload) => onEvent(payload.eventType as any, 'tickets',
+          payload.eventType === 'DELETE' ? payload.old : payload.new, payload.old))
       // votes
       .on('postgres_changes', { event: '*', schema: 'public', table: 'votes', filter: `room_id=eq.${roomId}` },
-        (payload) => onEvent(payload.eventType as any, 'votes', payload.new, payload.old))
+        (payload) => onEvent(payload.eventType as any, 'votes',
+          payload.eventType === 'DELETE' ? payload.old : payload.new, payload.old))
       // chat
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `room_id=eq.${roomId}` },
         (payload) => onEvent('INSERT', 'chat_messages', payload.new, null))
