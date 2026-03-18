@@ -73,6 +73,44 @@ function watchAd() {
       </div>
     </div>
 
+    <!-- From the same creator -->
+    <div class="promo-section">
+      <div class="promo-label">🛠 From the same creator</div>
+      <div class="promo-cards">
+
+        <!-- Ghostly AI -->
+        <a href="https://ghostly.surelle.xyz/" target="_blank" rel="noopener" class="promo-card">
+          <div class="promo-card__glow promo-card__glow--ghost" />
+          <div class="promo-card__header">
+            <span class="promo-card__icon">👻</span>
+            <div>
+              <div class="promo-card__name">Ghostly <span class="promo-card__name-accent">AI</span></div>
+              <div class="promo-card__badge promo-card__badge--soon">Coming Soon</div>
+            </div>
+            <span class="promo-card__arrow">↗</span>
+          </div>
+          <p class="promo-card__desc">A desktop overlay powered by local AI. Reads your screen in real time — coaches interviews, explains code, summarises docs. Zero trace. Zero cloud. Zero compromise.</p>
+          <div class="promo-card__url">ghostly.surelle.xyz</div>
+        </a>
+
+        <!-- Prompter -->
+        <a href="https://prompter.surelle.xyz/" target="_blank" rel="noopener" class="promo-card">
+          <div class="promo-card__glow promo-card__glow--prompter" />
+          <div class="promo-card__header">
+            <span class="promo-card__icon">⚡</span>
+            <div>
+              <div class="promo-card__name">Prompter</div>
+              <div class="promo-card__badge promo-card__badge--soon">Coming Soon</div>
+            </div>
+            <span class="promo-card__arrow">↗</span>
+          </div>
+          <p class="promo-card__desc">A browser extension to store your AI prompts and automatically paste them into ChatGPT, Gemini, and Claude — one click, any chat.</p>
+          <div class="promo-card__url">prompter.surelle.xyz</div>
+        </a>
+
+      </div>
+    </div>
+
     <!-- Footer links -->
     <div class="landing__footer">
       <a href="https://github.com/surelle-ha/asurr-pokerplanner" target="_blank" rel="noopener" class="footer-link footer-link--gh">
@@ -120,4 +158,38 @@ function watchAd() {
 .footer-link--ad:hover { background:rgba(16,185,129,0.18); }
 .footer-link--suggest { color:var(--accent2); border-color:rgba(99,102,241,0.3); background:rgba(99,102,241,0.08); }
 .footer-link--suggest:hover { background:rgba(99,102,241,0.18); border-color:var(--accent); }
+/* ── From the same creator promo ── */
+.promo-section { position:relative; z-index:1; width:100%; max-width:660px; display:flex; flex-direction:column; gap:10px; }
+.promo-label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--muted2); text-align:center; }
+.promo-cards { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.promo-card {
+  position:relative; overflow:hidden;
+  background:rgba(19,23,32,0.9); border:1px solid var(--border2);
+  border-radius:var(--r); padding:14px 16px;
+  display:flex; flex-direction:column; gap:9px;
+  text-decoration:none; color:inherit;
+  backdrop-filter:blur(10px);
+  transition:border-color 0.2s, background 0.2s, transform 0.2s;
+  cursor:pointer;
+}
+.promo-card:hover { border-color:rgba(139,92,246,0.5); background:rgba(139,92,246,0.07); transform:translateY(-2px); }
+/* Ambient glow behind card */
+.promo-card__glow {
+  position:absolute; width:120px; height:120px; border-radius:50%;
+  filter:blur(40px); opacity:0.18; pointer-events:none;
+  top:-20px; right:-20px;
+}
+.promo-card__glow--ghost    { background:#8b5cf6; }
+.promo-card__glow--prompter { background:#f59e0b; }
+.promo-card__header { display:flex; align-items:flex-start; gap:10px; position:relative; }
+.promo-card__icon { font-size:1.5rem; line-height:1; flex-shrink:0; margin-top:1px; }
+.promo-card__name { font-size:14px; font-weight:800; letter-spacing:-0.01em; line-height:1; }
+.promo-card__name-accent { color:#a78bfa; }
+.promo-card__badge { display:inline-block; font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; border-radius:999px; padding:2px 7px; margin-top:4px; }
+.promo-card__badge--soon { background:rgba(245,158,11,0.12); color:#fbbf24; border:1px solid rgba(245,158,11,0.25); }
+.promo-card__arrow { margin-left:auto; font-size:14px; color:var(--muted2); flex-shrink:0; transition:color 0.15s, transform 0.15s; }
+.promo-card:hover .promo-card__arrow { color:var(--accent2); transform:translate(2px,-2px); }
+.promo-card__desc { font-size:11px; color:var(--muted); line-height:1.55; position:relative; }
+.promo-card__url { font-size:10px; font-family:var(--font-mono); color:var(--muted2); position:relative; }
+
 </style>
