@@ -191,5 +191,4 @@ function watchAd() {
 .promo-card:hover .promo-card__arrow { color:var(--accent2); transform:translate(2px,-2px); }
 .promo-card__desc { font-size:11px; color:var(--muted); line-height:1.55; position:relative; }
 .promo-card__url { font-size:10px; font-family:var(--font-mono); color:var(--muted2); position:relative; }
-
 </style>
