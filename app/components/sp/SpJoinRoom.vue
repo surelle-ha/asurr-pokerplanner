@@ -78,7 +78,7 @@ async function submit() {
 
       <div class="field">
         <label>Rejoin Token <span class="optional">(optional)</span></label>
-        <input v-model="form.token" placeholder="Your token from a previous session" maxlength="32" />
+        <input v-model="form.token" placeholder="e.g. swift-fox-412 (auto-generated if blank)" maxlength="32" />
         <span class="field-hint">Enter your previous token to reclaim your seat.</span>
       </div>
 

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, provide } from 'vue'
+import { ref, computed, watch, onMounted, provide } from 'vue'
 
 definePageMeta({ ssr: false })
 
@@ -7,8 +7,33 @@ const sp = useSprintPoint()
 provide('sp', sp)
 
 // ── Screen routing ─────────────────────────────────────────────────────────────
-const screen         = ref('landing')   // landing | create | join | room
+const screen          = ref('landing')   // landing | create | join | room
 const initialRoomCode = ref('')          // pre-filled from ?room= share link
+const sessionStart    = ref(null)        // Date when user entered the room
+const sessionDisplay  = ref('0:00')      // formatted elapsed time
+let   sessionTimer    = null
+
+function startSessionTimer() {
+  sessionStart.value = Date.now()
+  sessionDisplay.value = '0:00'
+  clearInterval(sessionTimer)
+  sessionTimer = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - sessionStart.value) / 1000)
+    const h = Math.floor(elapsed / 3600)
+    const m = Math.floor((elapsed % 3600) / 60)
+    const s = elapsed % 60
+    sessionDisplay.value = h > 0
+      ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+      : `${m}:${String(s).padStart(2,'0')}`
+  }, 1000)
+}
+
+function stopSessionTimer() {
+  clearInterval(sessionTimer)
+  sessionTimer = null
+  sessionStart.value = null
+  sessionDisplay.value = '0:00'
+}
 
 // ── Emoji overlay ──────────────────────────────────────────────────────────────
 const emojiFlashes = ref([])
@@ -89,6 +114,7 @@ async function kickConfirm(memberId) {
 }
 
 async function backToLanding() {
+  stopSessionTimer()
   await sp.leaveRoom()
   screen.value    = 'landing'
   showShare.value = showAddTicket.value = showPassHost.value = showKick.value = false
@@ -114,6 +140,12 @@ onMounted(async () => {
   // Handle ?room= share URL — pass code to SpJoinRoom via prop
   const code = new URLSearchParams(window.location.search).get('room')
   if (code) { initialRoomCode.value = code; screen.value = 'join' }
+})
+
+// Start session timer whenever screen enters 'room'
+watch(screen, (val, prev) => {
+  if (val === 'room' && prev !== 'room') startSessionTimer()
+  if (val !== 'room') stopSessionTimer()
 })
 </script>
 
@@ -167,6 +199,7 @@ onMounted(async () => {
               <span v-if="sp.room.value.pin" class="hdr-lock">🔐</span>
             </h1>
             <p v-if="sp.room.value.description" class="room-header__desc">{{ sp.room.value.description }}</p>
+            <div class="session-timer" title="Session duration">⏱ {{ sessionDisplay }}</div>
           </div>
           <div class="room-header__right">
             <div v-if="sp.loading.value" class="sync-badge">syncing…</div>
@@ -240,6 +273,7 @@ onMounted(async () => {
 .room-header__title { font-size:1rem; font-weight:700; display:flex; align-items:center; gap:7px; }
 .hdr-lock { font-size:13px; }
 .room-header__desc { font-size:11px; color:var(--muted); margin-top:1px; }
+.session-timer { font-size:10px; color:var(--muted2); font-family:var(--font-mono); margin-top:3px; letter-spacing:0.04em; }
 .room-header__right { display:flex; align-items:center; gap:9px; }
 .sync-badge { font-size:10px; color:var(--muted2); background:var(--surface2); padding:2px 8px; border-radius:999px; animation:pulse 1s ease-in-out infinite; }
 .hdr-user-row { display:flex; align-items:center; gap:6px; }

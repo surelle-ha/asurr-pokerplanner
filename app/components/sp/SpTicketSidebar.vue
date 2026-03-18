@@ -51,9 +51,11 @@ function exportPDF() {
 <template>
   <aside class="sidebar sidebar--left" :class="{ 'sidebar--collapsed': !ticketsOpen }">
     <div class="sidebar-head">
-      <button class="sidebar-collapse-btn" @click="ticketsOpen = !ticketsOpen">
-        <span class="section-label">Tickets</span>
-        <span class="collapse-chevron" :class="{ 'collapse-chevron--up': ticketsOpen }">‹</span>
+      <button class="sidebar-collapse-btn" @click="ticketsOpen = !ticketsOpen" :title="ticketsOpen ? 'Collapse' : 'Expand tickets'">
+        <svg class="collapse-icon" :class="{ 'collapse-icon--open': ticketsOpen }" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="15 18 9 12 15 6"/>
+        </svg>
+        <span v-if="ticketsOpen" class="section-label">Tickets</span>
       </button>
       <div v-if="ticketsOpen" class="sidebar-head-actions">
         <div v-if="ticketHistory.length" class="export-wrap">
@@ -82,17 +84,49 @@ function exportPDF() {
         <div
           v-for="ticket in tickets" :key="ticket.id"
           class="ticket-item"
-          :class="{ 'ticket-item--active': activeTicketId===ticket.id, 'ticket-item--done': ticket.final_score!==null }"
+          :class="{
+            'ticket-item--active': activeTicketId===ticket.id,
+            'ticket-item--done':   ticket.final_score!==null,
+          }"
           @click="currentUser?.is_host && ticket.final_score===null && setActiveTicket(ticket.id)"
         >
+          <!-- Status indicator strip -->
+          <div class="ticket-item__strip">
+            <span v-if="ticket.final_score!==null" class="ticket-score-strip">{{ ticket.final_score }}</span>
+            <span v-else-if="activeTicketId===ticket.id" class="ticket-dot" />
+            <span v-else class="ticket-strip-idle" />
+          </div>
+
+          <!-- Main body -->
           <div class="ticket-item__body">
-            <span class="ticket-item__title">{{ ticket.title }}</span>
+            <div class="ticket-item__title-row">
+              <span class="ticket-item__title">{{ ticket.title }}</span>
+              <a
+                v-if="ticket.url"
+                :href="ticket.url"
+                target="_blank"
+                rel="noopener"
+                class="ticket-link-btn"
+                title="Open ticket URL"
+                @click.stop
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                  <polyline points="15 3 21 3 21 9"/>
+                  <line x1="10" y1="14" x2="21" y2="3"/>
+                </svg>
+              </a>
+            </div>
             <span v-if="ticket.description" class="ticket-item__desc">{{ ticket.description }}</span>
           </div>
-          <div class="ticket-item__right">
-            <span v-if="ticket.final_score!==null" class="ticket-score">{{ ticket.final_score }}</span>
-            <span v-else-if="activeTicketId===ticket.id" class="ticket-dot" />
-            <button v-if="currentUser?.is_host && ticket.final_score===null" class="rm-btn" @click.stop="removeTicket(ticket.id)">×</button>
+
+          <!-- Actions -->
+          <div class="ticket-item__actions">
+            <button v-if="currentUser?.is_host && ticket.final_score===null" class="rm-btn" @click.stop="removeTicket(ticket.id)" title="Delete ticket">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+              </svg>
+            </button>
           </div>
         </div>
       </transition-group>
@@ -113,10 +147,11 @@ function exportPDF() {
 .sidebar--collapsed { min-width:42px !important; width:42px !important; overflow:hidden; }
 .sidebar-head { display:flex; align-items:center; justify-content:space-between; padding:13px 13px 8px; flex-shrink:0; }
 .sidebar-head-actions { display:flex; align-items:center; gap:6px; }
-.sidebar-collapse-btn { display:flex; align-items:center; gap:6px; background:none; border:none; cursor:pointer; padding:0; flex:1; min-width:0; }
+.sidebar-collapse-btn { display:flex; align-items:center; gap:6px; background:none; border:none; cursor:pointer; padding:4px 2px; flex:1; min-width:0; border-radius:var(--r-sm); transition:background 0.15s; }
+.sidebar-collapse-btn:hover { background:var(--surface2); }
 .sidebar-collapse-btn:hover .section-label { color:var(--text); }
-.collapse-chevron { font-size:16px; color:var(--muted); line-height:1; transform:rotate(-90deg); transition:transform 0.22s cubic-bezier(0.4,0,0.2,1); flex-shrink:0; }
-.collapse-chevron--up { transform:rotate(90deg); }
+.collapse-icon { color:var(--muted); flex-shrink:0; transition:transform 0.22s cubic-bezier(0.4,0,0.2,1); transform:rotate(0deg); }
+.collapse-icon--open { transform:rotate(180deg); color:var(--text); }
 .export-wrap { position:relative; }
 .export-icon-btn { padding:4px 6px; }
 .export-icon-btn svg { display:block; }
@@ -126,18 +161,61 @@ function exportPDF() {
 .ticket-list { flex:1; overflow-y:auto; padding:0 7px 8px; }
 .ticket-list::-webkit-scrollbar { width:3px; }
 .ticket-list::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
-.ticket-item { display:flex; align-items:flex-start; gap:8px; padding:9px; border-radius:var(--r-sm); cursor:pointer; transition:background 0.12s; margin-bottom:2px; border:1px solid transparent; }
-.ticket-item:hover { background:var(--surface2); }
-.ticket-item--active { background:rgba(99,102,241,0.09); border-color:rgba(99,102,241,0.2); }
-.ticket-item--done { opacity:0.48; cursor:default; }
-.ticket-item__body { flex:1; display:flex; flex-direction:column; gap:2px; min-width:0; }
-.ticket-item__title { font-size:12px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.ticket-item__desc { font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.ticket-item__right { display:flex; align-items:center; gap:4px; flex-shrink:0; }
-.ticket-score { background:var(--accent); color:white; font-size:11px; font-weight:700; padding:2px 7px; border-radius:999px; }
-.ticket-dot { width:6px; height:6px; border-radius:50%; background:var(--accent); animation:pulse 1.4s ease-in-out infinite; }
-.rm-btn { background:none; border:none; color:var(--muted2); cursor:pointer; font-size:15px; line-height:1; }
-.rm-btn:hover { color:#ef4444; }
+.ticket-item {
+  display: flex; align-items: center; gap: 0;
+  border-radius: var(--r-sm); cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  margin-bottom: 3px; border: 1px solid transparent;
+  overflow: hidden; min-height: 40px;
+}
+.ticket-item:hover { background: var(--surface2); border-color: var(--border2); }
+.ticket-item--active { background: rgba(99,102,241,0.09); border-color: rgba(99,102,241,0.28); }
+.ticket-item--done { opacity: 0.5; cursor: default; }
+/* Left strip — colour-coded status, stretches full height via align-self */
+.ticket-item__strip {
+  width: 4px; flex-shrink: 0; align-self: stretch;
+  background: var(--border2);
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.2s;
+}
+.ticket-item--active .ticket-item__strip { background: var(--accent); }
+.ticket-item--done   .ticket-item__strip { background: var(--success); }
+/* Score badge inside strip for done tickets */
+.ticket-score-strip {
+  writing-mode: vertical-rl; text-orientation: mixed;
+  font-size: 9px; font-weight: 800; color: white;
+  letter-spacing: 0.05em; padding: 4px 0;
+}
+.ticket-strip-idle { width: 4px; }
+/* Body */
+.ticket-item__body { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 7px 6px 7px 8px; }
+.ticket-item__title-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.ticket-item__title { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+.ticket-item__desc { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* URL link icon */
+.ticket-link-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--muted2); flex-shrink: 0;
+  border-radius: 3px; padding: 1px 2px;
+  transition: color 0.15s, background 0.15s;
+  text-decoration: none;
+}
+.ticket-link-btn:hover { color: var(--accent2); background: rgba(99,102,241,0.12); }
+/* Delete action column — always same height as row, centred */
+.ticket-item__actions {
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 6px; flex-shrink: 0;
+  opacity: 0; transition: opacity 0.15s;
+}
+.ticket-item:hover .ticket-item__actions { opacity: 1; }
+.rm-btn {
+  background: none; border: none; color: var(--muted2); cursor: pointer;
+  padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center;
+  transition: color 0.15s, background 0.15s; line-height: 0;
+}
+.rm-btn:hover { color: #ef4444; background: rgba(239,68,68,0.1); }
+.ticket-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+.ticket-score { background: var(--accent); color: white; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 999px; }
 .completed-section { padding:10px 13px; border-top:1px solid var(--border); flex-shrink:0; max-height:140px; overflow-y:auto; }
 .history-row { display:flex; justify-content:space-between; align-items:center; padding:3px 0; }
 .history-title { font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:145px; }

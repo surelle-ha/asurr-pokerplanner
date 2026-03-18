@@ -44,13 +44,40 @@ function renderQR() {
   s.onload = load; document.head.appendChild(s)
 }
 
-// Add ticket
-const ticketInput = ref({ title: '', description: '' })
+// Add ticket — submitting guard prevents double-fire on fast clicks
+const ticketInput      = ref({ title: '', description: '', url: '' })
+const submittingTicket = ref(false)
+const urlError         = ref('')
+
+function validateUrl() {
+  const raw = ticketInput.value.url.trim()
+  if (!raw) { urlError.value = ''; return true }  // empty is fine — url is optional
+  try {
+    const u = new URL(raw)
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+      urlError.value = 'URL must start with http:// or https://'
+      return false
+    }
+    urlError.value = ''
+    return true
+  } catch {
+    urlError.value = 'Please enter a valid URL'
+    return false
+  }
+}
+
 async function submitAddTicket() {
-  if (!ticketInput.value.title.trim()) return
-  await sp.addTicket(ticketInput.value.title.trim(), ticketInput.value.description.trim())
-  ticketInput.value = { title: '', description: '' }
-  emit('close-add')
+  if (!ticketInput.value.title.trim() || submittingTicket.value) return
+  if (!validateUrl()) return   // block if url is present but invalid
+  submittingTicket.value = true
+  try {
+    await sp.addTicket(ticketInput.value.title.trim(), ticketInput.value.description.trim(), ticketInput.value.url.trim() || undefined)
+    ticketInput.value = { title: '', description: '', url: '' }
+    urlError.value = ''
+    emit('close-add')
+  } finally {
+    submittingTicket.value = false
+  }
 }
 
 // Leaderboard
@@ -103,11 +130,23 @@ const nonHostMembers = computed(() => members.value.filter(m => m.id !== current
         </div>
         <div class="field">
           <label>Description <span class="optional">(optional)</span></label>
-          <textarea v-model="ticketInput.description" placeholder="What needs estimating?" rows="3" class="modal-input" />
+          <textarea v-model="ticketInput.description" placeholder="What needs estimating?" rows="2" class="modal-input" />
+        </div>
+        <div class="field">
+          <label>Ticket URL <span class="optional">(optional — Jira, Linear, GitHub…)</span></label>
+          <input
+            v-model="ticketInput.url"
+            placeholder="https://..."
+            class="modal-input"
+            :class="{ 'input-error': urlError }"
+            @blur="validateUrl"
+            @input="urlError = ''"
+          />
+          <span v-if="urlError" class="field-err">{{ urlError }}</span>
         </div>
         <div class="modal-actions">
           <button class="btn btn--ghost" @click="$emit('close-add')">Cancel</button>
-          <button class="btn btn--primary" :disabled="!ticketInput.title.trim()" @click="submitAddTicket">Add Ticket</button>
+          <button class="btn btn--primary" :disabled="!ticketInput.title.trim() || submittingTicket || !!urlError" @click="submitAddTicket">{{ submittingTicket ? 'Adding…' : 'Add Ticket' }}</button>
         </div>
       </div>
     </div>

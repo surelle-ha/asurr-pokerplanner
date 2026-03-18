@@ -41,8 +41,8 @@ Built and maintained by [@surelle-ha](https://github.com/surelle-ha) as part of 
 - [ ] Repository: Rename GitHub repository name.
 - [ ] Repository: Add CI/CD.
 - [ ] Repository: Security: Enable `main` branch protection.
-- [ ] Codebase: Divide to components.
-- [ ] Codebase: Add layouts.
+- [x] Codebase: Divide to components.
+- [x] Codebase: Add layouts.
 - [ ] Codebase: Add `Data Analytics` monitoring.
 - [ ] Codebase: Dockerfile for self-host.
 - [ ] Codebase: Add dependency updater.

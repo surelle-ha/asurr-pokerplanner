@@ -29,10 +29,10 @@ function watchAd() {
 
     <!-- Hero -->
     <div class="landing__hero">
-      <div class="landing__badge">Planning Poker</div>
+      <div class="landing__badge">Scrum Planning Poker</div>
       <h1 class="landing__title">
-        <span class="brand-prefix">Asurr</span>
-        <span class="product-name">Sprint<span class="accent">Point</span></span>
+        <span class="brand-prefix">Surelle</span>
+        <span class="product-name">Scrum <span class="accent">PokerPlanner</span></span>
       </h1>
       <p class="landing__sub">
         Free story point estimation tool — built by
@@ -60,7 +60,7 @@ function watchAd() {
       </div>
       <div class="info-card">
         <div class="info-card__icon">🗑️</div>
-        <div class="info-card__body"><strong>Auto-purge</strong><span>Room data older than 3 days is deleted automatically.</span></div>
+        <div class="info-card__body"><strong>Auto-purge</strong><span>All room data is deleted once the room is closed.</span></div>
       </div>
       <div class="info-card">
         <div class="info-card__icon">🤝</div>

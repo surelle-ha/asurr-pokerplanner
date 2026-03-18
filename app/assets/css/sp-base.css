@@ -36,7 +36,7 @@
   width: 100%;
 }
 .field input:focus, .field textarea:focus, .modal-input:focus { border-color:var(--accent); }
-.field input.error { border-color:#ef4444; }
+.field input.error, .modal-input.input-error { border-color:#ef4444; }
 .field-err { color:#ef4444; font-size:12px; }
 .err-box { padding:8px; background:rgba(239,68,68,0.08); border-radius:8px; }
 .field-hint { font-size:11px; color:var(--muted); line-height:1.4; }

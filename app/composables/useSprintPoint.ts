@@ -489,16 +489,21 @@ export function useSprintPoint() {
     await sysMsg(room.value.id, newLocked ? '🔒 Room locked by host.' : '🔓 Room unlocked.')
   }
 
-  async function addTicket(title: string, description?: string) {
+  async function addTicket(title: string, description?: string, url?: string) {
     if (!room.value) return
     const maxOrder = tickets.value.reduce((m, t) => Math.max(m, t.order), -1)
     const { data: ticket, error: err } = await supabase
       .from('tickets')
-      .insert({ room_id: room.value.id, title, description: description ?? null, order: maxOrder + 1 })
+      .insert({ room_id: room.value.id, title, description: description ?? null, url: url ?? null, order: maxOrder + 1 })
       .select().single()
     if (err) { error.value = err.message; return }
-    if (!room.value.active_ticket_id) await setActiveTicket(ticket.id)
-    else await sysMsg(room.value.id, `Ticket added: "${title}"`)
+    if (!room.value.active_ticket_id) {
+      // Pass the known title directly — avoids the race where the Realtime
+      // INSERT hasn't arrived yet so tickets.value doesn't have this row yet
+      await setActiveTicket(ticket.id, title)
+    } else {
+      await sysMsg(room.value.id, `Ticket added: "${title}"`)
+    }
   }
 
   async function removeTicket(ticketId: string) {
@@ -520,12 +525,13 @@ export function useSprintPoint() {
       await supabase.from('rooms').update({ active_ticket_id: null, revealed: false }).eq('id', room.value.id)
   }
 
-  async function setActiveTicket(ticketId: string) {
+  async function setActiveTicket(ticketId: string, knownTitle?: string) {
     if (!room.value || revealed.value) return
-    const ticket = tickets.value.find(t => t.id === ticketId)
+    // Use knownTitle when provided (avoids undefined when Realtime hasn't delivered the INSERT yet)
+    const title = knownTitle ?? tickets.value.find(t => t.id === ticketId)?.title ?? ''
     await supabase.from('votes').delete().eq('room_id', room.value.id).eq('ticket_id', ticketId)
     await supabase.from('rooms').update({ active_ticket_id: ticketId, revealed: false }).eq('id', room.value.id)
-    await sysMsg(room.value.id, `Now estimating: "${ticket?.title}"`)
+    if (title) await sysMsg(room.value.id, `Now estimating: "${title}"`)
   }
 
   async function castVote(value: string) {

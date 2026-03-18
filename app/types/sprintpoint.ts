@@ -39,6 +39,7 @@ export interface Ticket {
   title: string
   description: string | null
   final_score: string | null   // stored as text ('?', '☕', '13', etc.)
+  url: string | null            // added in migration 010
   created_at: string
   order: number
 }

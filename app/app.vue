@@ -5,7 +5,7 @@
     </h1>
 
     <p class="sr-only">
-      Asurr SprintPoint is a free online <strong>Planning Poker</strong> tool for
+      Poker Planner is a free online <strong>Planning Poker</strong> tool for
       <strong>Agile Scrum teams</strong> to estimate <strong>story points</strong>
       during <strong>sprint planning</strong>. Collaborate with your team,
       vote using Fibonacci cards, and reach estimation consensus faster.
@@ -20,10 +20,10 @@
 const route = useRoute()
 
 useSeoMeta({
-  title: 'Asurr SprintPoint — Free Planning Poker for Agile & Scrum Teams',
+  title: 'Poker Planner — Free Planning Poker for Agile & Scrum Teams',
 
-  ogTitle: 'Asurr SprintPoint — Free Planning Poker Tool',
-  twitterTitle: 'Asurr SprintPoint — Free Planning Poker Tool',
+  ogTitle: 'Poker Planner — Free Planning Poker Tool',
+  twitterTitle: 'Poker Planner — Free Planning Poker Tool',
 
   description:
     'Free Planning Poker tool for Agile and Scrum teams. Estimate story points collaboratively, run sprint planning sessions online, and reach consensus faster.',
@@ -42,8 +42,8 @@ useSeoMeta({
   ogType: 'website',
   ogSiteName: 'Asurr SprintPoint',
 
-  ogImage: 'https://asurr-pokerplanner.vercel.app/og-image.png',
-  twitterImage: 'https://asurr-pokerplanner.vercel.app/og-image.png',
+  ogImage: 'https://poker-planner.surelle.xyz/og-image.png',
+  twitterImage: 'https://poker-planner.surelle.xyz/og-image.png',
 
   twitterCard: 'summary_large_image'
 })
@@ -56,7 +56,7 @@ useHead({
   link: [
     {
       rel: 'canonical',
-      href: `https://asurr-pokerplanner.vercel.app${route.path}`
+      href: `https://poker-planner.surelle.xyz/${route.path}`
     },
     {
       rel: 'icon',
@@ -88,7 +88,7 @@ useHead({
     },
     {
       property: 'og:url',
-      content: `https://asurr-pokerplanner.vercel.app${route.path}`
+      content: `https://poker-planner.surelle.xyz/${route.path}`
     },
     {
       name: 'google-site-verification',
