@@ -37,7 +37,12 @@ function exportPDF() {
   if (!room || !ticketHistory.value.length) return
   const win = window.open('', '_blank')
   win.document.write(`<html><head><title>${room.name} Scores</title>
-  <style>body{font-family:system-ui,sans-serif;padding:40px;color:#111;max-width:700px;margin:0 auto}table{width:100%;border-collapse:collapse;margin-top:16px}th{text-align:left;padding:8px 12px;background:#f0f0f0;font-size:12px;text-transform:uppercase}td{padding:10px 12px;border-bottom:1px solid #eee;font-size:14px}.score{font-weight:700;color:#6366f1;text-align:center}</style></head><body>
+  <style>body{font-family:system-ui,sans-serif;padding:40px;color:#111;max-width:700px;margin:0 auto}table{width:100%;border-collapse:collapse;margin-top:16px}th{text-align:left;padding:8px 12px;background:#f0f0f0;font-size:12px;text-transform:uppercase}td{padding:10px 12px;border-bottom:1px solid #eee;font-size:14px}.score{font-weight:700;color:#6366f1;text-align:center}
+@media (max-width: 768px) {
+  .sidebar--left { border-right:none; min-width:unset !important; width:100% !important; }
+  .sidebar--collapsed { display:none; }
+}
+</style></head><body>
   <h1>📋 ${room.name}</h1><p>Exported ${new Date().toLocaleString()}</p>
   <table><thead><tr><th>#</th><th>Ticket</th><th>Description</th><th style="text-align:center">Score</th></tr></thead><tbody>
   ${ticketHistory.value.map((t, i) => `<tr><td>${i+1}</td><td><strong>${t.title}</strong></td><td style="color:#666">${t.description ?? '—'}</td><td class="score">${t.final_score}</td></tr>`).join('')}

@@ -98,4 +98,9 @@ async function submit() {
 .room-preview__name { font-weight:700; font-size:15px; }
 .room-preview__desc { font-size:12px; color:var(--muted); }
 .locked-badge { font-size:12px; color:#f59e0b; margin-top:2px; }
+
+@media (max-width: 480px) {
+  .form-screen { padding:1rem; align-items:flex-start; padding-top:2rem; }
+  .form-card { padding:20px 16px; }
+}
 </style>

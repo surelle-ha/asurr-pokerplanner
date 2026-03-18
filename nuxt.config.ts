@@ -2,7 +2,8 @@
 export default defineNuxtConfig({
   app: {
     head: {
-      title: 'Asurr: SprintPoint',
+      title: 'Poker Planner — Free Planning Poker for Agile & Scrum Teams',
+      meta: [{ name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' }],
       htmlAttrs: {
         lang: 'en',
       },

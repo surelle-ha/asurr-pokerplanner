@@ -105,4 +105,9 @@ function onKey(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); 
 .chat-input { flex:1; background:var(--surface2); border:1px solid var(--border2); border-radius:8px; color:var(--text); font-size:13px; padding:8px 10px; outline:none; font-family:var(--font-main); }
 .chat-input:focus { border-color:var(--accent); }
 .send-btn { font-size:16px; color:var(--accent); }
+
+@media (max-width: 768px) {
+  .sidebar--right { border-left:none; height:100%; }
+  .members-list { max-height:90px; }
+}
 </style>

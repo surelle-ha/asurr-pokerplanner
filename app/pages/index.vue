@@ -192,44 +192,60 @@ watch(screen, (val, prev) => {
 
         <!-- Header -->
         <header class="room-header">
-          <div class="room-header__left">
-            <h1 class="room-header__title">
-              {{ sp.room.value.name }}
-              <span v-if="sp.isLocked.value" class="hdr-lock">🔒</span>
-              <span v-if="sp.room.value.pin" class="hdr-lock">🔐</span>
-            </h1>
-            <p v-if="sp.room.value.description" class="room-header__desc">{{ sp.room.value.description }}</p>
-            <div class="session-timer" title="Session duration">⏱ {{ sessionDisplay }}</div>
-          </div>
-          <div class="room-header__right">
-            <div v-if="sp.loading.value" class="sync-badge">syncing…</div>
+          <!-- Row 1: room name + exit -->
+          <div class="room-header__row1">
+            <div class="room-header__left">
+              <h1 class="room-header__title">
+                {{ sp.room.value.name }}
+                <span v-if="sp.isLocked.value" class="hdr-lock">🔒</span>
+                <span v-if="sp.room.value.pin" class="hdr-lock">🔐</span>
+              </h1>
+              <div class="session-timer" title="Session duration">⏱ {{ sessionDisplay }}</div>
+            </div>
             <div class="hdr-user-row">
               <div class="me-badge" :style="{ borderColor: sp.currentUser.value?.color }">
                 <div class="av av--xs" :style="{ background: sp.currentUser.value?.color }">
                   {{ (sp.currentUser.value?.name || '?').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase() }}
                 </div>
-                <span>{{ sp.currentUser.value?.name }}<span v-if="sp.currentUser.value?.is_host" class="me-role">host</span></span>
+                <span class="me-name">{{ sp.currentUser.value?.name }}<span v-if="sp.currentUser.value?.is_host" class="me-role">host</span></span>
               </div>
-              <button v-if="sp.myToken.value" class="token-pill" :title="tokenCopied ? 'Copied!' : 'Click to copy rejoin token'" @click="copyToken">
-                🔑 {{ sp.myToken.value }}<span class="token-pill__copy">{{ tokenCopied ? '✓' : '⎘' }}</span>
-              </button>
+              <div v-if="sp.loading.value" class="sync-badge">syncing…</div>
               <button class="exit-pill" @click="backToLanding" title="Exit room">✕</button>
             </div>
+          </div>
+          <!-- Row 2: controls (collapse on mobile with token hidden) -->
+          <div class="room-header__row2">
+            <button v-if="sp.myToken.value" class="token-pill" :title="tokenCopied ? 'Copied!' : 'Click to copy rejoin token'" @click="copyToken">
+              🔑 <span class="token-pill__val">{{ sp.myToken.value }}</span><span class="token-pill__copy">{{ tokenCopied ? '✓' : '⎘' }}</span>
+            </button>
             <div v-if="sp.currentUser.value?.is_host" class="host-controls">
-              <button class="btn btn--ghost btn--sm" @click="toggleLock">{{ sp.isLocked.value ? '🔓 Unlock' : '🔒 Lock' }}</button>
-              <button class="btn btn--ghost btn--sm" @click="showPassHost=true">👑 Pass</button>
-              <button class="btn btn--ghost btn--sm" @click="showKick=true">🥾 Kick</button>
-              <button v-if="sp.room.value?.enable_leaderboard" class="btn btn--ghost btn--sm" @click="showLeaderboard=true">🏆 Board</button>
+              <button class="btn btn--ghost btn--sm" @click="toggleLock">{{ sp.isLocked.value ? '🔓' : '🔒' }}<span class="btn-label"> {{ sp.isLocked.value ? 'Unlock' : 'Lock' }}</span></button>
+              <button class="btn btn--ghost btn--sm" @click="showPassHost=true">👑<span class="btn-label"> Pass</span></button>
+              <button class="btn btn--ghost btn--sm" @click="showKick=true">🥾<span class="btn-label"> Kick</span></button>
+              <button v-if="sp.room.value?.enable_leaderboard" class="btn btn--ghost btn--sm" @click="showLeaderboard=true">🏆<span class="btn-label"> Board</span></button>
             </div>
-            <button class="btn btn--accent btn--sm" @click="showShare=true">⬆ Share</button>
+            <button class="btn btn--accent btn--sm" @click="showShare=true">⬆<span class="btn-label"> Share</span></button>
           </div>
         </header>
 
-        <!-- Body: 3-column layout -->
+        <!-- Mobile tab bar -->
+        <nav class="mobile-tabs">
+          <button class="mobile-tab" :class="{ 'mobile-tab--active': mobileTab==='tickets' }" @click="mobileTab='tickets'">
+            🎫 Tickets
+          </button>
+          <button class="mobile-tab" :class="{ 'mobile-tab--active': mobileTab==='board' }" @click="mobileTab='board'">
+            🃏 Board
+          </button>
+          <button class="mobile-tab" :class="{ 'mobile-tab--active': mobileTab==='chat' }" @click="mobileTab='chat'">
+            💬 Chat
+          </button>
+        </nav>
+
+        <!-- Body: 3-column on desktop, single-panel on mobile -->
         <div class="room-body">
-          <SpTicketSidebar v-model:showAddModal="showAddTicket" />
-          <SpBoardCenter @send-emoji="sendEmoji" />
-          <SpChatSidebar @open-kick="(m) => { kickTarget = m; showKick = true }" />
+          <SpTicketSidebar v-model:showAddModal="showAddTicket" :class="{ 'panel-hidden': mobileTab!=='tickets' }" />
+          <SpBoardCenter @send-emoji="sendEmoji" :class="{ 'panel-hidden': mobileTab!=='board' }" />
+          <SpChatSidebar @open-kick="(m) => { kickTarget = m; showKick = true }" :class="{ 'panel-hidden': mobileTab!=='chat' }" />
         </div>
       </div>
 
@@ -259,31 +275,63 @@ watch(screen, (val, prev) => {
 </template>
 
 <style scoped>
-.app {
-  background: var(--bg); color: var(--text);
-  min-height: 100vh; overflow: hidden; position: relative;
-}
-/* Emoji overlay */
+.app { background:var(--bg); color:var(--text); min-height:100vh; overflow:hidden; position:relative; }
+
+/* Emoji */
 .emoji-stage { position:fixed; inset:0; pointer-events:none; z-index:500; }
 .emoji-flash { position:absolute; font-size:2.4rem; pointer-events:none; animation:eup 2.5s ease-out forwards; filter:drop-shadow(0 2px 6px rgba(0,0,0,0.6)); }
-/* Room layout */
-.room { display:flex; flex-direction:column; height:100vh; overflow:hidden; }
-.room-header { display:flex; align-items:center; justify-content:space-between; padding:10px 18px; background:var(--surface); border-bottom:1px solid var(--border); flex-shrink:0; gap:12px; min-height:54px; }
-.room-header__left { display:flex; align-items:center; gap:14px; }
-.room-header__title { font-size:1rem; font-weight:700; display:flex; align-items:center; gap:7px; }
-.hdr-lock { font-size:13px; }
-.room-header__desc { font-size:11px; color:var(--muted); margin-top:1px; }
-.session-timer { font-size:10px; color:var(--muted2); font-family:var(--font-mono); margin-top:3px; letter-spacing:0.04em; }
-.room-header__right { display:flex; align-items:center; gap:9px; }
-.sync-badge { font-size:10px; color:var(--muted2); background:var(--surface2); padding:2px 8px; border-radius:999px; animation:pulse 1s ease-in-out infinite; }
-.hdr-user-row { display:flex; align-items:center; gap:6px; }
-.me-badge { display:flex; align-items:center; gap:6px; border:1.5px solid; border-radius:999px; padding:3px 10px 3px 4px; font-size:12px; font-weight:500; }
-.me-role { background:rgba(99,102,241,0.2); color:var(--accent2); font-size:10px; padding:1px 6px; border-radius:999px; margin-left:3px; }
-.token-pill { display:inline-flex; align-items:center; gap:5px; background:var(--surface2); border:1px solid var(--border2); border-radius:6px; padding:3px 8px 3px 7px; font-size:10px; font-family:var(--font-mono); font-weight:700; color:var(--accent2); letter-spacing:0.04em; cursor:pointer; transition:all 0.15s; white-space:nowrap; }
-.token-pill:hover { border-color:var(--accent); background:rgba(99,102,241,0.1); }
-.token-pill__copy { margin-left:3px; font-size:11px; color:var(--muted); font-family:sans-serif; }
-.exit-pill { width:26px; height:26px; border-radius:50%; background:none; border:1px solid var(--border2); color:var(--muted); font-size:13px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.15s; flex-shrink:0; }
+
+/* Room shell */
+.room { display:flex; flex-direction:column; height:100vh; height:100dvh; overflow:hidden; }
+
+/* Header — two stacked rows */
+.room-header { display:flex; flex-direction:column; background:var(--surface); border-bottom:1px solid var(--border); flex-shrink:0; padding:8px 14px 6px; gap:5px; }
+.room-header__row1 { display:flex; align-items:center; justify-content:space-between; gap:8px; min-width:0; }
+.room-header__row2 { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.room-header__left { display:flex; flex-direction:column; gap:1px; min-width:0; flex:1; }
+.room-header__title { font-size:0.95rem; font-weight:700; display:flex; align-items:center; gap:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.hdr-lock { font-size:12px; flex-shrink:0; }
+.session-timer { font-size:10px; color:var(--muted2); font-family:var(--font-mono); letter-spacing:0.04em; }
+.sync-badge { font-size:10px; color:var(--muted2); background:var(--surface2); padding:2px 8px; border-radius:999px; animation:pulse 1s ease-in-out infinite; flex-shrink:0; }
+.hdr-user-row { display:flex; align-items:center; gap:6px; flex-shrink:0; }
+.me-badge { display:flex; align-items:center; gap:5px; border:1.5px solid; border-radius:999px; padding:2px 8px 2px 4px; font-size:12px; font-weight:500; white-space:nowrap; max-width:180px; }
+.me-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.me-role { background:rgba(99,102,241,0.2); color:var(--accent2); font-size:10px; padding:1px 5px; border-radius:999px; margin-left:2px; flex-shrink:0; }
+.token-pill { display:inline-flex; align-items:center; gap:4px; background:var(--surface2); border:1px solid var(--border2); border-radius:6px; padding:3px 7px; font-size:10px; font-family:var(--font-mono); font-weight:700; color:var(--accent2); cursor:pointer; transition:all 0.15s; }
+.token-pill:hover { border-color:var(--accent); }
+.token-pill__val { max-width:110px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.token-pill__copy { font-size:11px; color:var(--muted); font-family:sans-serif; flex-shrink:0; }
+.exit-pill { width:28px; height:28px; border-radius:50%; background:none; border:1px solid var(--border2); color:var(--muted); font-size:13px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.15s; flex-shrink:0; }
 .exit-pill:hover { background:rgba(239,68,68,0.12); border-color:rgba(239,68,68,0.4); color:#ef4444; }
-.host-controls { display:flex; gap:6px; }
+.host-controls { display:flex; gap:4px; flex-wrap:wrap; }
+
+/* Mobile tab bar — hidden on desktop */
+.mobile-tabs { display:none; }
+
+/* Room 3-col grid */
 .room-body { display:grid; grid-template-columns:225px 1fr 250px; flex:1; overflow:hidden; }
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .room-header { padding:6px 10px 5px; }
+  .me-name { display:none; }
+  .token-pill__val { max-width:72px; }
+  .btn-label { display:none; }
+
+  /* Single panel view */
+  .room-body { grid-template-columns:1fr; }
+  .panel-hidden { display:none !important; }
+
+  /* Tab bar */
+  .mobile-tabs { display:flex; background:var(--surface); border-bottom:1px solid var(--border); flex-shrink:0; }
+  .mobile-tab { flex:1; padding:9px 4px; font-size:12px; font-weight:600; background:none; border:none; color:var(--muted); cursor:pointer; border-bottom:2px solid transparent; transition:all 0.15s; font-family:var(--font-main); }
+  .mobile-tab--active { color:var(--accent2); border-bottom-color:var(--accent); }
+}
+
+@media (max-width: 480px) {
+  .room-header__row2 { gap:3px; }
+  .host-controls { gap:3px; }
+  .btn.btn--sm { padding:5px 8px; font-size:11px; }
+  .token-pill { display:none; } /* too cramped on very small screens */
+}
 </style>

@@ -191,7 +191,7 @@ async function acceptScore(score) { await sp.acceptScore(score) }
 .accept-card--other { opacity:0.65; }
 .accept-card--other:hover { opacity:1; }
 /* Dock */
-.float-dock { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); z-index:300; display:flex; align-items:center; background:rgba(19,23,32,0.92); border:1px solid var(--border2); border-radius:999px; padding:7px 12px; backdrop-filter:blur(12px); box-shadow:0 8px 32px rgba(0,0,0,0.55),0 0 0 1px rgba(255,255,255,0.04); max-width:calc(100vw - 520px); overflow-x:auto; scrollbar-width:none; }
+.float-dock { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); z-index:300; display:flex; align-items:center; background:rgba(19,23,32,0.92); border:1px solid var(--border2); border-radius:999px; padding:7px 12px; backdrop-filter:blur(12px); box-shadow:0 8px 32px rgba(0,0,0,0.55),0 0 0 1px rgba(255,255,255,0.04); max-width:calc(100vw - 24px); overflow-x:auto; scrollbar-width:none; }
 .float-dock::-webkit-scrollbar { display:none; }
 .dock-section { display:flex; align-items:center; gap:5px; flex-shrink:0; }
 .dock-divider { width:1px; height:28px; background:var(--border2); margin:0 10px; flex-shrink:0; }
@@ -210,4 +210,22 @@ async function acceptScore(score) { await sp.acceptScore(score) }
 .dock-emojis { gap:2px; }
 .dock-emoji { background:none; border:none; cursor:pointer; font-size:1.2rem; padding:4px 5px; border-radius:8px; line-height:1; transition:background 0.1s,transform 0.12s; }
 .dock-emoji:hover { background:var(--surface2); transform:scale(1.35) translateY(-2px); }
+
+@media (max-width: 768px) {
+  .center { padding:10px 12px 100px; } /* extra bottom padding for dock */
+  .table-scene { padding-bottom:52%; } /* slightly taller on mobile */
+  .float-dock { bottom:12px; padding:6px 10px; border-radius:16px; }
+  .dock-card { min-width:34px; height:46px; font-size:0.85rem; }
+  .accept-card { min-width:42px; height:56px; }
+  .accept-card--suggest { min-width:50px; height:64px; }
+  .results-stats { gap:6px; }
+  .stat-val { font-size:1.2rem; }
+}
+@media (max-width: 480px) {
+  .dock-card { min-width:30px; height:42px; font-size:0.8rem; padding:0 5px; }
+  .dock-emoji { font-size:1rem; padding:3px 4px; }
+  .dock-reveal-btn { padding:6px 12px; font-size:12px; }
+  .dock-divider { margin:0 6px; }
+  .seat-label__name { max-width:48px; font-size:8px; }
+}
 </style>

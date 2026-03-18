@@ -191,4 +191,19 @@ function watchAd() {
 .promo-card:hover .promo-card__arrow { color:var(--accent2); transform:translate(2px,-2px); }
 .promo-card__desc { font-size:11px; color:var(--muted); line-height:1.55; position:relative; }
 .promo-card__url { font-size:10px; font-family:var(--font-mono); color:var(--muted2); position:relative; }
+
+
+@media (max-width: 600px) {
+  .landing { padding:1.5rem 1rem; gap:1.5rem; justify-content:flex-start; padding-top:2.5rem; }
+  .landing__title { font-size:clamp(2rem,10vw,3rem); }
+  .landing__info { grid-template-columns:1fr 1fr; }
+  .promo-cards { grid-template-columns:1fr; }
+  .landing__footer { gap:8px; }
+  .footer-link { padding:5px 10px; font-size:11px; }
+}
+@media (max-width: 380px) {
+  .landing__info { grid-template-columns:1fr; }
+  .landing__actions { flex-direction:column; width:100%; }
+  .landing__actions .btn { width:100%; text-align:center; }
+}
 </style>

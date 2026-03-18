@@ -86,4 +86,9 @@ async function submit() {
 .form-card { width:100%; max-width:440px; background:var(--surface); border:1px solid var(--border); border-radius:var(--r); padding:30px; display:flex; flex-direction:column; gap:18px; }
 .form-card h2 { font-size:1.4rem; font-weight:700; }
 .form-hint { color:var(--muted); font-size:13px; margin-top:-8px; }
+
+@media (max-width: 480px) {
+  .form-screen { padding:1rem; align-items:flex-start; padding-top:2rem; }
+  .form-card { padding:20px 16px; }
+}
 </style>

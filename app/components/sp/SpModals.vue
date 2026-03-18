@@ -251,4 +251,10 @@ const nonHostMembers = computed(() => members.value.filter(m => m.id !== current
 .lb-streak--hot { color:#f97316; }
 .lb-you { font-size:10px; color:var(--muted); }
 .lb-note { font-size:10px; color:var(--muted2); text-align:center; line-height:1.5; }
+
+@media (max-width: 480px) {
+  .modal { width:calc(100vw - 24px); padding:18px 14px; }
+  .modal--wide { width:calc(100vw - 24px); }
+  .lb-head, .lb-row { grid-template-columns:28px 1fr 60px 56px 40px; font-size:11px; }
+}
 </style>
